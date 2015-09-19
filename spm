@@ -1,0 +1,1586 @@
+#!/usr/bin/env php
+<?php
+/**
+ * @license http://hardsoft321.org/license/ GPLv3
+ * @author Evgeny Pervushin <pea@lab321.ru>
+ *
+ * SugarCRM Package Manager
+ */
+
+class SpmCmdVersion extends SpmCmd
+{
+    public function executeNonSugar()
+    {
+        echo "1.0\n";
+    }
+}
+
+class SpmCmdHelp extends SpmCmd
+{
+    public function executeNonSugar()
+    {
+        echo <<<'_USAGE_'
+Usage:
+    spm help
+    spm version
+    spm list [<pattern>]
+    spm install <id_name>[-<version>]
+    spm uninstall <id_name>[-<version>]
+    spm upload <id_name>[-<version>]
+    spm remove <id_name>[-<version>]
+    spm repair
+    spm dbquery <sql>
+    spm check
+    spm file <file1> [<file2> ...]
+    spm create
+    spm zip <id_name>[-<version>]
+
+spm help
+    Display this help. Can be executed outside of the SugarCRM.
+
+spm version
+    Display version. Can be executed outside of the SugarCRM.
+
+spm list [<pattern>]
+    List packages. Has different behavior outside of the SugarCRM and inside it.
+    By default, list installed packages and loaded but not installed packages
+    optionally filtered by <pattern>. List available packages if -a option used.
+    Available packages are folders with sources (not zipped) located at spm_path.
+    spm_path can be specified by environment variable SPM_PATH or option --spm-path.
+    Available packages can be used for uploading to SugarCRM or just zipping.
+    Options:
+        -a - list available packages
+        --spm-path=<path> - search package sources on <path>
+
+spm install <id_name>[-<version>]
+    Install package. The package must be loaded to SugarCRM. Manifest file will be
+    automatically extracted if only zip file was uploaded.
+
+spm uninstall <id_name>[-<version>]
+    Uninstall package. By default, if doesn't remove tables, ACL, etc.
+    Options:
+        --remove-tables - remove bean tables
+        --remove-acl - remove ACL actions
+        --remove-custom - remove customization directory
+        --remove-prefs - remove user preferences
+        --remove-relationships - remove relationships (and modify viewdefs)
+        --not-uninstallable - uninstall package even if it hasn't is_uninstallable attribute
+
+spm upload <id_name>[-<version>]
+    Zip sources and upload zip archive and manifest to the SugarCRM upload directory.
+    Sources must be among the available packages (see `spm list`).
+    Also php syntax checked for all php files.
+    Options:
+        --no-php-check - skip php syntax check
+        --spm-path=<path> - search package sources on <path>
+
+spm remove <id_name>[-<version>]
+    Remove package files from upload directory.
+
+spm repair
+    Run Quick Repair and Rebuild. Show SQL-queries if differences found between database and vardefs.
+    Options:
+        -v - show output
+
+spm dbquery <sql>
+    Run SQL-query on SugarCRM database.
+
+spm check
+    Search conflicts between installed packages.
+    Options:
+        --by-restore - also run conflict search based on files saved in *-restore folders
+
+spm file <file1> [<file2> ...]
+    Try to search file(s) in the installed packages.
+
+spm create
+    Run interactive dialogue and then create folder with simple package structure.
+    Can be executed outside of the SugarCRM.
+
+spm zip <id_name>[-<version>]
+    Create zip archive of package sources in the current directory.
+    Can be executed outside of the SugarCRM.
+    Sources must be among the available packages (see `spm list`).
+    Options:
+        --no-php-check - skip php syntax check
+        --spm-path=<path> - search package sources on <path>
+
+
+_USAGE_;
+    }
+}
+
+class Spm
+{
+    /**
+     * DB for storing per SugarCRM data
+     */
+    private $db;
+
+    /**
+     * DB for storing per user data (system account, not sugar)
+     */
+    private $userDb;
+
+    /**
+     * Directory where script was executed
+     */
+    public $cwd;
+
+    /**
+     * Simple method to find conflicts. Use it if `check` doesn't work.
+     */
+    public function listRestoreConflicts()
+    {
+        global $db;
+        $q = "SELECT id_name, filename FROM upgrade_history WHERE type = 'module' AND status = 'installed'";
+        $dbRes = $db->query($q);
+        $overwrittenFiles = array();
+        while($row = $db->fetchByAssoc($dbRes)) {
+            $backup_path = clean_path( remove_file_extension($row['filename'])."-restore" );
+            if(is_dir($backup_path)) {
+                foreach(self::scandirRecursively($backup_path) as $f) {
+                    $overwrittenFiles[$f][$row['id_name']] = $row['id_name'];
+                }
+            }
+        }
+        foreach($overwrittenFiles as $f => $idArr) {
+            if(count($idArr) > 1) {
+                echo "$f\n";
+                foreach($idArr as $id => $id1) {
+                    echo "    $id\n";
+                }
+                echo "\n";
+            }
+        }
+    }
+
+    public function listInstalled($keyword = null)
+    {
+        global $db;
+        $q = "SELECT id_name, version FROM upgrade_history WHERE status = 'installed'";
+        if(!empty($keyword)) {
+            $q .= " AND id_name LIKE '%".$db->quote($keyword)."%'";
+        }
+        $q .= " ORDER BY id_name ASC, date_entered DESC";
+        $dbRes = $db->query($q);
+        $packs = array();
+        while($row = $db->fetchByAssoc($dbRes)) {
+            $packs[$row['id_name']][] = $row['version'];
+        }
+        foreach($packs as $id_name => $versions) {
+            echo "  ",$id_name," ",implode(', ', $versions),"\n";
+        }
+    }
+
+    public function listLoaded($keyword = null)
+    {
+        global $db;
+        $q = "SELECT id_name, version FROM stage WHERE 1";
+        if(!empty($keyword)) {
+            $q .= " AND id_name LIKE '%".trim($this->getDb()->quote($keyword), "'")."%'";
+        }
+        $q .= " ORDER BY id_name ASC, version COLLATE NATURAL_CMP DESC";
+        $stmt = $this->getDb()->query($q);
+        $packs = array();
+        foreach($stmt->fetchAll() as $row) {
+            $packs[$row['id_name']][] = $row['version'];
+        }
+        foreach($packs as $id_name => $versions) {
+            echo "  ",$id_name," ",implode(', ', $versions),"\n";
+        }
+    }
+
+    public function listAvailable($keyword = null)
+    {
+        $q = "SELECT id_name, version FROM available WHERE 1";
+        if(!empty($keyword)) {
+            $q .= " AND id_name LIKE '%".trim($this->getUserDb()->quote($keyword), "'")."%'";
+        }
+        $q .= " ORDER BY id_name ASC, version COLLATE NATURAL_CMP DESC";
+        $stmt = $this->getUserDb()->query($q);
+        $packs = array();
+        foreach($stmt->fetchAll() as $row) {
+            $packs[$row['id_name']][] = $row['version'];
+        }
+        foreach($packs as $id_name => $versions) {
+            echo "  ",$id_name," ",implode(', ', $versions),"\n";
+        }
+    }
+
+    public function listFileInfo($file)
+    {
+        echo "$file:\n";
+        $stmt = $this->getDb()->prepare("SELECT package_id_name, package_version, crc, type FROM files WHERE filename = :filename ORDER BY date_entered DESC");
+        $stmt->execute(array(
+            ':filename' => $file,
+        ));
+        $rows = $stmt->fetchAll();
+        if(!empty($rows)) {
+            $crc = hash_file('crc32b', $file);
+        }
+        foreach($rows as $info) {
+            echo "  {$info['type']} from {$info['package_id_name']}-{$info['package_version']}"
+                .($info['crc'] === null ? "" : " ".(sprintf("%u",$info['crc']) == hexdec($crc) ? "(not modified)" : "(modified)"))."\n";
+        }
+
+        static $md5 = array();
+        if(empty($md5) && file_exists('files.md5'))
+        {
+            include('files.md5');
+            $md5 = $md5_string;
+        }
+        if(isset($md5['./' . $file])) {
+            echo "  SugarCRM ".(md5_file($file) == $md5['./' . $file] ? "(not modified)" : "(modified)")."\n";
+        }
+    }
+
+    public function check()
+    {
+        $stmt = $this->getDb()->prepare(
+        "SELECT filename, count(*) AS c FROM (
+            SELECT DISTINCT filename, package_id_name FROM files
+        ) t
+        GROUP BY filename
+        HAVING c > 1
+        ORDER BY filename");
+        $stmt->execute();
+        $rows = $stmt->fetchAll();
+        foreach($rows as $file) {
+            $this->listFileInfo($file['filename']);
+        }
+    }
+
+    public function install($id_name, $version = null)
+    {
+        global $db;
+        $stmt = $this->getDb()->prepare("SELECT id_name, version, filename, type FROM stage WHERE id_name = :id_name AND (version = :version OR :version IS NULL) ORDER BY version COLLATE NATURAL_CMP DESC");
+        $stmt->execute(array(
+            ':id_name' => $id_name,
+            ':version' => $version,
+        ));
+        $packages = $stmt->fetchAll();
+        if(empty($packages)) {
+            throw new Exception("Package $id_name not found.");
+        }
+        if(count($packages) > 1) {
+            $msg = "There are some files with the same id:";
+            foreach($packages as $pack) {
+                $msg .= "\n  {$pack['version']} {$pack['filename']}";
+            }
+            throw new Exception($msg);
+        }
+        $pack = reset($packages);
+        if($pack['type'] != 'module') {
+            throw new Exception("Installing package of type '{$pack['type']}' is not implemented.");
+        }
+        $version = $pack['version'];
+        $file_to_install = $pack['filename'];
+        if(!is_file($file_to_install)) {
+            throw new Exception("File $file_to_install not found.");
+        }
+
+        $q = "SELECT version FROM upgrade_history WHERE id_name = '".$db->quote($id_name)
+            ."' ORDER BY date_entered DESC";
+        $dbRes = $db->query($q);
+        while($row = $db->fetchByAssoc($dbRes)) {
+            if(strnatcmp($row['version'], $version) != -1) {
+                throw new Exception("You are trying to install older version. Version {$row['version']} already installed.");
+            }
+        }
+
+        self::createLock(array('action' => 'install', 'package' => "$id_name-$version"));
+        echo "Installing package {$pack['id_name']} {$pack['version']} file $file_to_install ...\n";
+        $sugarcrmLogFile = $GLOBALS['sugar_config']['logger']['file']['name'].$GLOBALS['sugar_config']['logger']['file']['ext'];
+        $md5 = file_exists($sugarcrmLogFile) ? md5_file($sugarcrmLogFile) : md5('');
+        $pm = new SpmPackageManager();
+        $file_to_install = UploadStream::path($file_to_install);
+        $_REQUEST['install_file'] = $file_to_install;
+        try {
+            $pm->performInstall($file_to_install);
+        }
+        catch(DependenciesException $ex) {
+            self::releaseLock();
+            throw $ex;
+        }
+        $this->log("install {$id_name}-{$version}");
+        if(md5_file($sugarcrmLogFile) != $md5) {
+            echo "sugarcrm.log was modified; logger.level = {$GLOBALS['sugar_config']['logger']['level']}.\n";
+        }
+        self::releaseLock();
+    }
+
+    public function uninstall($id_name, $version = null, $options = array())
+    {
+        global $db;
+        $q = "SELECT id_name, version, type, filename FROM upgrade_history WHERE id_name = '".$db->quote($id_name)
+            ."' ORDER BY date_entered DESC";
+        $dbRes = $db->query($q);
+        $packages = array();
+        while($row = $db->fetchByAssoc($dbRes)) {
+            $packages[] = $row;
+        }
+        if(empty($packages)) {
+            throw new Exception("Package with id {$id_name} not installed");
+        }
+        $package = reset($packages);
+        if($package['type'] != 'module') {
+            throw new Exception("Uninstalling package of type '{$lastPackage['type']}' is not implemented.");
+        }
+        $lastVersion = $package['version'];
+        if(!$version) {
+            $version = $lastVersion;
+        }
+        elseif($version != $lastVersion) {
+            throw new Exception("You should uninstall last installed version (namely $lastVersion)");
+        }
+        $id_name = $package['id_name'];
+        $version = $package['version'];
+
+        $target_manifest = remove_file_extension($package['filename']) . "-manifest.php";
+        if(file_exists($target_manifest)) {
+            $manifest = null;
+            include $target_manifest;
+            if(isset($manifest['is_uninstallable']) && !$manifest['is_uninstallable'] && empty($options['not-uninstallable'])) {
+                throw new Exception("Package is not uninstallable. But you can use option --not-uninstallable to uninstall it.");
+            }
+        }
+        //dependencies not checked here at all, Sugar checks straight dependencies, but it should checks reverse dependencies
+        self::createLock(array('action' => 'uninstall', 'package' => "$id_name-$version"));
+        echo "Uninstalling package $id_name $version ...\n";
+        $sugarcrmLogFile = $GLOBALS['sugar_config']['logger']['file']['name'].$GLOBALS['sugar_config']['logger']['file']['ext'];
+        $md5 = file_exists($sugarcrmLogFile) ? md5_file($sugarcrmLogFile) : md5('');
+        $pm = new SpmPackageManager();
+        $GLOBALS['mi_remove_tables'] = !empty($options['remove-tables']);
+        $pm->options = $options;
+        $pm->performUninstall($id_name, $version);
+        echo "\n";
+        $this->log("uninstall {$id_name}-{$version}");
+        if(md5_file($sugarcrmLogFile) != $md5) {
+            echo "sugarcrm.log was modified; logger.level = {$GLOBALS['sugar_config']['logger']['level']}.\n";
+        }
+        self::releaseLock();
+    }
+
+    public function remove($id_name, $version = null)
+    {
+        $stmt = $this->getDb()->prepare("SELECT version, filename FROM stage WHERE id_name = :id_name AND (version = :version OR :version IS NULL) ORDER BY version COLLATE NATURAL_CMP DESC");
+        $stmt->execute(array(':id_name' => $id_name, ':version' => $version));
+        $packages = $stmt->fetchAll();
+        if(empty($packages)) {
+            throw new Exception("Package $id_name $version not found.");
+        }
+        require_once('ModuleInstall/PackageManager/PackageController.php');
+        $pmc = new PackageController();
+        foreach($packages as $pack) {
+            echo "Removing {$pack['filename']} ...\n";
+            $hash = md5($pack['filename']);
+            $_SESSION['file2Hash'][$hash] = $pack['filename'];
+            $_REQUEST['file'] = $hash;
+            ob_start();
+            $pmc->remove();
+            ob_clean();
+            unset($_SESSION['file2Hash'][$hash]);
+        }
+    }
+
+    public function upload($id_name, $version = null, $options = array())
+    {
+        $stmt = $this->getUserDb()->prepare("SELECT version, filename FROM available WHERE id_name = :id_name AND (version = :version OR :version IS NULL) ORDER BY version COLLATE NATURAL_CMP DESC LIMIT 1");
+        if(!$stmt) {
+            throw new Exception(implode(' ', $this->getUserDb()->errorInfo()));
+        }
+        $stmt->execute(array(':id_name' => $id_name, ':version' => $version));
+        $row = $stmt->fetch();
+        if(empty($row)) {
+            throw new Exception("Package $id_name $version not found.");
+        }
+        $manifest_file = $row['filename'].'/manifest.php';
+        if(!is_file($manifest_file)) {
+            throw new Exception("File {$manifest_file} not found.");
+        }
+        $manifest = $installdefs = null;
+        include $manifest_file;
+        $id_name1 = !empty($installdefs['id']) ? $installdefs['id'] : $manifest['name'];
+        $version1 = $manifest['version'];
+        if(strcasecmp($id_name1, $id_name) != 0 || ($version && strcasecmp($version1, $version) != 0)) {
+            throw new Exception("Id/version mismatch.");
+        }
+        require_once 'modules/UpgradeWizard/uw_utils.php';
+        $err = validate_manifest($manifest);
+        if($err) {
+            throw new Exception($err);
+        }
+        /* Проверка синтаксиса */
+        if(empty($options['no-php-check'])) {
+            $command = "cd {$row['filename']}; pwd; find . -name \"*.php\" -exec php -l {} \; ";
+            $out = `$command`;
+            if(strpos($out, 'Errors parsing')) {
+                throw new Exception($out);
+            }
+        }
+
+        $upgrade_zip_type = $manifest['type'];
+        // exclude the bad permutations
+        if ($upgrade_zip_type != "module" && $upgrade_zip_type != "theme" && $upgrade_zip_type != "langpack") {
+            throw new Exception("'$upgrade_zip_type' is not acceptable type.");
+        }
+
+        $base_filename = "{$id_name1}-{$version1}.zip";
+        $base_upgrade_dir = "upload://upgrades";
+        $target_path = "$base_upgrade_dir/$upgrade_zip_type/$base_filename";
+        if(file_exists($target_path)) {
+            throw new Exception("File $target_path already exists.");
+        }
+
+        echo "Uploading package $id_name1 {$row['version']} from {$row['filename']} ...\n";
+        if(!is_dir("$base_upgrade_dir/$upgrade_zip_type") && !UploadStream::mkdir("$base_upgrade_dir/$upgrade_zip_type", 0770, STREAM_MKDIR_RECURSIVE)) {
+            throw new Exception("Cannot create directory $base_upgrade_dir/$upgrade_zip_type.");
+        };
+        /* Создание zip-пакета */
+        $command = "cd {$row['filename']}; pwd; zip -r '".getcwd()."/".UploadStream::path($target_path)."' ./* -x \"*.git*\"";
+        $out = `$command`;
+        $hasErrors = strpos($out, 'warning: ');
+        if(!is_file($target_path)) {
+            throw new Exception("Cannot create file $target_path.\n".$out);
+        }
+
+        $target_manifest = remove_file_extension( $target_path ) . "-manifest.php";
+        copy( $manifest_file, $target_manifest );
+
+        if( isset($manifest['icon']) && $manifest['icon'] != "" ){
+             $icon_location = $row['filename'].'/'.$manifest['icon'];
+             copy($icon_location, remove_file_extension( $target_path )."-icon.".pathinfo($icon_location, PATHINFO_EXTENSION));
+        }
+
+        if($hasErrors) {
+            echo "File uploaded, but there was warnings: ",$out;
+        }
+    }
+
+    public function zip($id_name, $version = null, $options = array())
+    {
+        $stmt = $this->getUserDb()->prepare("SELECT version, filename FROM available WHERE id_name = :id_name AND (version = :version OR :version IS NULL) ORDER BY version COLLATE NATURAL_CMP DESC LIMIT 1");
+        if(!$stmt) {
+            throw new Exception("Error on getting available packages");
+        }
+        $stmt->execute(array(':id_name' => $id_name, ':version' => $version));
+        $row = $stmt->fetch();
+        if(empty($row)) {
+            throw new Exception("Package $id_name $version not found.");
+        }
+        $manifest_file = $row['filename'].'/manifest.php';
+        if(!is_file($manifest_file)) {
+            throw new Exception("File {$manifest_file} not found.");
+        }
+        $manifest = $installdefs = null;
+        include $manifest_file;
+        $id_name1 = !empty($installdefs['id']) ? $installdefs['id'] : $manifest['name'];
+        $version1 = $manifest['version'];
+        if(strcasecmp($id_name1, $id_name) != 0 || ($version && strcasecmp($version1, $version) != 0)) {
+            throw new Exception("Id/version mismatch.");
+        }
+        /* Проверка синтаксиса */
+        if(empty($options['no-php-check'])) {
+            $command = "cd {$row['filename']}; pwd; find . -name \"*.php\" -exec php -l {} \; ";
+            $out = `$command`;
+            if(strpos($out, 'Errors parsing')) {
+                throw new Exception($out);
+            }
+        }
+
+        $i = 0;
+        do {
+            $target_path = $this->cwd."/{$id_name1}-{$version1}".($i ? "($i)" : "").".zip";
+            $i++;
+        }
+        while(file_exists($target_path));
+
+        echo "Creating file {$target_path} ...\n";
+        /* Создание zip-пакета */
+        $command = "cd {$row['filename']}; pwd; zip -r '".$target_path."' ./* -x \"*.git*\"";
+        $out = `$command`;
+        $hasErrors = strpos($out, 'warning: ');
+        if(!is_file($target_path)) {
+            throw new Exception("Cannot create file $target_path.\n".$out);
+        }
+
+        if($hasErrors) {
+            echo "File created, but there was warnings: ",$out;
+        }
+    }
+
+    public function updateStage()
+    {
+        $pm = new PackageManager();
+        $packs = $pm->getPackagesInStaging();
+        $this->getDb()->exec("DROP TABLE IF EXISTS stage");
+        $this->getDb()->exec("CREATE TABLE stage (id_name TEXT COLLATE NOCASE, version TEXT, filename TEXT, type TEXT)");
+        $stmt = $this->getDb()->prepare("INSERT INTO stage (id_name, version, filename, type) VALUES (:id_name, :version, :filename, :type)");
+        $stmt->bindParam(':id_name', $id_name);
+        $stmt->bindParam(':version', $version);
+        $stmt->bindParam(':filename', $filename);
+        $stmt->bindParam(':type', $type);
+        foreach($packs as $key => $pack) {
+            if(!empty($pack['name'])) {
+                $upgrade_content = hashToFile($pack['file']);
+                $target_manifest = remove_file_extension( $upgrade_content ) . '-manifest.php';
+                if(!file_exists($target_manifest)) {
+                    copy("zip://".UploadStream::path($upgrade_content)."#manifest.php", $target_manifest);
+                }
+                if(file_exists($target_manifest)) {
+                    $manifest = $installdefs = null;
+                    require($target_manifest);
+                    $id_name = !empty($installdefs['id']) ? $installdefs['id'] : null;
+                    $version = $manifest['version'];
+                    $filename = hashToFile($pack['file']);
+                    $type = $manifest['type'];
+                    $stmt->execute();
+                }
+                else {
+                    echo "Warning: $target_manifest not exists while update stage\n";
+                }
+            }
+        }
+    }
+
+    public function updateAvailable($options = array())
+    {
+        $this->getUserDb()->exec("DROP TABLE IF EXISTS available");
+        $this->getUserDb()->exec("CREATE TABLE available (id_name TEXT COLLATE NOCASE, version TEXT, filename TEXT)");
+        $stmt = $this->getUserDb()->prepare("INSERT INTO available (id_name, version, filename) VALUES (:id_name, :version, :filename)");
+        $stmt->bindParam(':id_name', $id_name);
+        $stmt->bindParam(':version', $version);
+        $stmt->bindParam(':filename', $filename);
+        $spmPath = !empty($options['spm-path']) ? $options['spm-path'] : getenv('SPM_PATH');
+        if(empty($spmPath)) {
+            echo "No SPM_PATH defined. You may define environment variable SPM_PATH or option --spm-path=<path>.\n";
+        }
+        $paths = explode(':', $spmPath);
+        foreach($paths as $path) {
+            if($path) {
+                if(is_dir($path)) {
+                    $packs = self::searchPackages(rtrim($path, '/'));
+                    foreach($packs as $key => $pack) {
+                        extract($pack);
+                        $stmt->execute();
+                    }
+                }
+                else {
+                    echo "Warning: directory $path not exists.\n";
+                }
+            }
+        }
+    }
+
+    protected static function searchPackages($path, $prefix = '')
+    {
+        $packages = array();
+        if(is_file($path.'/manifest.php')) {
+            $manifest = $installdefs = null;
+            include $path.'/manifest.php'; //user must add only trusted sources
+            if((!empty($manifest['name']) || !empty($installdefs['id'])) && !empty($manifest['version'])) {
+                $packages[] = array(
+                    'filename' => $path,
+                    'id_name' => !empty($installdefs['id']) ? $installdefs['id'] : $manifest['name'],
+                    'version' => $manifest['version'],
+                );
+                return $packages;
+            }
+        }
+        foreach(scandir($path) as $f) {
+            if($f != '.' && $f != '..') {
+                if(is_dir($path.'/'.$f)) {
+                    $packages = array_merge($packages, self::searchPackages($path.'/'.$f, $prefix.$f.'/'));
+                }
+            }
+        }
+        return $packages;
+    }
+
+    public function updateCopiedFiles()
+    {
+        global $db;
+        if(!class_exists('ZipArchive')) {
+            throw new Exception("ZipArchive class required but not exists.");
+        }
+        $this->getDb()->exec("DROP TABLE IF EXISTS files");
+        $this->getDb()->exec("CREATE TABLE files (filename TEXT, package_id_name TEXT COLLATE NOCASE, package_version TEXT, crc INT, type TEXT, date_entered TEXT)");
+        $stmt = $this->getDb()->prepare("INSERT INTO files (filename, package_id_name, package_version, crc, type, date_entered)
+            VALUES (:filename, :id_name, :version, :crc, :type, :date_entered)");
+        $stmt->bindParam(':filename', $filename);
+        $stmt->bindParam(':id_name', $id_name);
+        $stmt->bindParam(':version', $version);
+        $stmt->bindParam(':crc', $crc);
+        $stmt->bindParam(':type', $type);
+        $stmt->bindParam(':date_entered', $date_entered);
+
+        $sql = "SELECT id_name, version, filename, date_entered FROM upgrade_history ORDER BY id_name ASC, date_entered DESC";
+        $dbRes = $db->query($sql);
+        $sugarPath = getcwd();
+        $mi = new ModuleInstaller();
+        while($row = $db->fetchByAssoc($dbRes)) {
+            $manifestFile = remove_file_extension($row['filename']).'-manifest.php';
+            if(file_exists($manifestFile) && file_exists($row['filename'])) {
+                $id_name = $row['id_name'];
+                $version = $row['version'];
+                $package_filename = $row['filename'];
+                $date_entered = $row['date_entered'];
+                $manifest = $installdefs = null;
+                require $manifestFile;
+                if(empty($installdefs)) {
+                    continue;
+                }
+                $copyDefs = array();
+
+                if(!empty($installdefs['copy'])) {
+                    foreach($installdefs['copy'] as $cp) {
+                        $from = clean_path(ltrim(str_replace('<basepath>', '', $cp['from']), '/'));
+                        $to = ltrim(substr(realpath($sugarPath.'/'.str_replace('<basepath>', '.', $cp['to'])), strlen($sugarPath)), '/');
+                        $copyDefs[] = array(
+                            'from' => $from,
+                            'to' => $to,
+                            'type' => 'copy',
+                        );
+                    }
+                }
+
+                foreach($mi->extensions as $extname => $ext) {
+                    $section = $ext["section"];
+                    if(!method_exists($mi, "install_$extname") && !empty($ext["section"])) {
+                        $extname = $ext["extdir"];
+                        $module = isset($ext['module']) ? $ext['module'] : '';
+                        if(isset($installdefs[$section])) {
+                            foreach($installdefs[$section] as $item) {
+                                if(!empty($module)) {
+                                    $item['to_module'] = $module;
+                                }
+                                if(empty($item['to_module'])) {
+                                    continue;
+                                }
+                                if(isset($item['from'])) {
+                                    $from = ltrim(str_replace('<basepath>', '', $item['from']), '/');
+                                } else {
+                                    $from = '';
+                                }
+                                if($item['to_module'] == 'application') {
+                                    $path = "custom/Extension/application/Ext/$extname";
+                                } else {
+                                    $path = "custom/Extension/modules/{$item['to_module']}/Ext/$extname";
+                                }
+                                if(isset($item["name"])) {
+                                    $target = $item["name"];
+                                } else if (!empty($from)){
+                                    $target = basename($from, ".php");
+                                } else {
+                                    $target = $id_name;
+                                }
+                                $copyDefs[] = array(
+                                    'from' => $from ? $from : 'manifest.php',
+                                    'to' => "$path/$target.php",
+                                    'type' => $section,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                if(!empty($installdefs['language'])) {
+                    foreach($installdefs['language'] as $packs) {
+                        if(empty($packs['from']) || empty($packs['to_module'])) {
+                            continue;
+                        }
+                        $from = ltrim(str_replace('<basepath>', '', $packs['from']), '/');
+
+                        $path = 'custom/Extension/modules/' . $packs['to_module']. '/Ext/Language';
+                        if($packs['to_module'] == 'application'){
+                            $path ='custom/Extension/' . $packs['to_module']. '/Ext/Language';
+                        }
+                        $path .= '/'.$packs['language'].'.'. $id_name . '.php';
+
+                        $copyDefs[] = array(
+                            'from' => $from,
+                            'to' => $path,
+                            'type' => 'language',
+                        );
+                    }
+                }
+
+                //TODO: relationships, custom_fields, dashlets, image_dir, dcaction, connectors
+                if(empty($copyDefs)) {
+                    continue;
+                }
+
+                $zip = new ZipArchive;
+                $res = $zip->open($package_filename);
+                if ($res === TRUE) {
+                    for($i = 0; $i < $zip->numFiles; $i++) {
+                        $stat = $zip->statIndex($i);
+                        if(!empty($stat['crc'])) {
+                            $filename = false;
+                            $cp1 = false;
+                            foreach($copyDefs as $cp) {
+                                if(strpos($stat['name'], $cp['from']) === 0) {
+                                    $filename = rtrim(($cp['to'] ? $cp['to'].'/' : '').ltrim(substr($stat['name'], strlen($cp['from'])), '/'), '/');
+                                    $cp1 = $cp;
+                                    break;
+                                }
+                            }
+                            if($filename) {
+                                $crc = $cp1['from'] == 'manifest.php' ? null : $stat['crc'];
+                                $type = $cp1['type'];
+                                $stmt->execute();
+                            }
+                        }
+                    }
+                    $zip->close();
+                } else {
+                    echo "Error: zip {$row['filename']} not opened, code: ", $res, "\n";
+                }
+            }
+        }
+    }
+
+    public function repair($options = array())
+    {
+        $randc = new SpmRepairAndClear();
+        $show_output = !empty($options['v']);
+        if($show_output) {
+            ob_start();
+        }
+        $randc->repairAndClearAll(array('clearAll'),array(translate('LBL_ALL_MODULES')), false, $show_output);
+        if($show_output) {
+            echo "\n";
+            ob_flush();
+        }
+        if($randc->sql) {
+            echo "/* Differences found between database and vardefs.
+ * You may run `spm dbquery \"<sql>\"`. */\n\n";
+            echo $randc->sql,"\n\n";
+        }
+
+        require_once 'modules/Configurator/Configurator.php';
+        $configuratorObj = new Configurator();
+        $configuratorObj->loadConfig();
+        $js_custom_version = empty($configuratorObj->config['js_custom_version']) || !is_numeric($configuratorObj->config['js_custom_version'])
+            ? 100 : $configuratorObj->config['js_custom_version'];
+        $configuratorObj->config['js_custom_version'] = $js_custom_version + 1;
+        $js_lang_version = empty($configuratorObj->config['js_lang_version']) || !is_numeric($configuratorObj->config['js_lang_version'])
+            ? 100 : $configuratorObj->config['js_lang_version'];
+        $configuratorObj->config['js_lang_version'] = $js_lang_version + 1;
+        $configuratorObj->saveConfig();
+    }
+
+    public function dbquery($sql)
+    {
+        global $db;
+        $sql = str_replace(
+            array(
+                "\n",
+                '&#039;',
+            ),
+            array(
+                '',
+                "'",
+            ),
+            preg_replace('#(/\*.+?\*/\n*)#', '', $sql)
+        );
+        foreach (explode(";", $sql) as $stmt) {
+            $stmt = trim($stmt);
+
+            if (!empty ($stmt)) {
+                echo "Query: $stmt\n";
+                $res = $db->query($stmt,true,'Executing repair query from spm: ');
+                echo ($res ? "Done" : "Fail"),"\n";
+            }
+        }
+    }
+
+    protected function getDb()
+    {
+        if(!$this->db) {
+            $this->db = new PDO('sqlite::memory:');
+            $this->db->sqliteCreateCollation('NATURAL_CMP', 'strnatcmp');
+        }
+        return $this->db;
+    }
+
+    protected function getUserDb()
+    {
+        if(!$this->userDb) {
+            $this->userDb = new PDO('sqlite::memory:');
+            $this->userDb->sqliteCreateCollation('NATURAL_CMP', 'strnatcmp');
+        }
+        return $this->userDb;
+    }
+
+    protected function log($msg)
+    {
+        file_put_contents('spm.log', date('Y-m-d H:i:s')." [".get_current_user()."]: ".$msg."\n", FILE_APPEND);
+    }
+
+    protected function createLock($data = array())
+    {
+        if(file_exists('.spm.lock')) {
+            throw new Exception("Probably other installation in progress. See .spm.lock file.");
+        }
+        file_put_contents('.spm.lock',
+'//file autogenerated by spm '.date("Y-m-d H:i:s").'
+'.var_export($data, true)
+);
+    }
+
+    protected function releaseLock()
+    {
+        if(file_exists('.spm.lock')) {
+            unlink('.spm.lock');
+        }
+    }
+
+    /**
+     * https://github.com/fayebsg/sugarcrm-cli.git
+     *  + pea
+     */
+    public static function enterSugar()
+    {
+        if(!self::chdirToSugarRoot()) {
+            return false;
+        }
+
+        if (!defined('sugarEntry')) {
+            define('sugarEntry', true);
+        }
+
+        require('config.php');
+        $GLOBALS['sugar_config'] = $sugar_config;
+        require_once('include/entryPoint.php');
+
+        // Scope is messed up due to requiring files within a function
+        // We need to explicitly assign these variables to $GLOBALS
+        foreach (get_defined_vars() as $key => $val) {
+            $GLOBALS[$key] = $val;
+        }
+
+        if (empty($current_language)) {
+            $current_language = $sugar_config['default_language'];
+        }
+
+        $GLOBALS['app_list_strings'] = return_app_list_strings_language($current_language);
+        $GLOBALS['app_strings'] = return_application_language($current_language);
+        $GLOBALS['mod_strings'] = array_merge(
+            return_module_language($current_language, "Administration"),
+            return_module_language($current_language, "UpgradeWizard")
+        );
+
+        global $current_user;
+        $current_user = new User();
+        $current_user->getSystemUser();
+
+        if (UploadStream::getSuhosinStatus() == false) {
+            echo "Warning: ",htmlspecialchars_decode($GLOBALS['app_strings']['ERR_SUHOSIN']),"\n";
+        }
+        return true;
+    }
+
+    protected static function chdirToSugarRoot($path = null)
+    {
+        if($path === null) {
+            $path = getcwd();
+        }
+        if(self::isSugarDir($path)) {
+            if(getcwd() != $path) {
+                chdir($path);
+            }
+            return true;
+        }
+        $parentPath = dirname($path);
+        if($parentPath == $path) {
+            return false;
+        }
+        return self::chdirToSugarRoot($parentPath);
+    }
+
+    public static function isSugarDir($path = null)
+    {
+        if($path === null) {
+            $path = getcwd();
+        }
+        return file_exists($path.'/sugar_version.php') && file_exists($path.'/include/entryPoint.php');
+    }
+
+    public static function cleanupSugar()
+    {
+        sugar_cleanup();
+    }
+
+    public static function scandirRecursively($path, $prefix = '')
+    {
+        $files = array();
+        foreach(scandir($path) as $f) {
+            if($f != '.' && $f != '..') {
+                if(is_dir($path.'/'.$f)) {
+                    $files = array_merge($files, self::scandirRecursively($path.'/'.$f, $prefix.$f.'/'));
+                }
+                else {
+                    $files[] = $prefix.$f;
+                }
+            }
+        }
+        return $files;
+    }
+}
+
+class DependenciesException extends Exception {
+}
+
+class SpmCmd
+{
+    protected $spm;
+
+    public function __construct()
+    {
+        $this->spm = new Spm();
+        $this->spm->cwd = getcwd();
+    }
+
+    public static function getCmdFromCli()
+    {
+        global $argv;
+        if(isset($argv[1])) {
+            $cmdClass = 'SpmCmd'.ucfirst(strtolower($argv[1]));
+            if(class_exists($cmdClass)) {
+                return new $cmdClass;
+            }
+        }
+        return null;
+    }
+
+    protected function getArgvParams($subjectCount, $allowedOptions)
+    {
+        global $argv;
+        $options = array();
+        $subjects = array();
+        for($i = 2; $i < count($argv); $i++) {
+            if($argv[$i][0] == '-') {
+                $optPair = explode("=", ltrim($argv[$i], '-'));
+                $name = $optPair[0];
+                if(in_array($name.':', $allowedOptions)) {
+                    if(count($optPair) < 2) {
+                        throw new Exception("Value must be specified for option {$argv[$i]}");
+                    }
+                    $options[$name] = $optPair[1];
+                }
+                elseif(in_array($name, $allowedOptions)) {
+                    $options[$name] = true;
+                }
+                else {
+                    throw new Exception("Unknown option {$argv[$i]}");
+                }
+            }
+            else {
+                if($subjectCount !== false && count($subjects) >= $subjectCount) {
+                    throw new Exception("Unknown option {$argv[$i]}");
+                }
+                $subjects[] = $argv[$i];
+            }
+        }
+        if($subjectCount !== false && count($subjects) < $subjectCount) {
+            throw new Exception("Some params missing. See `spm help`.");
+        }
+        return array($subjects, $options);
+    }
+
+    protected static function parsePackageName($fullname)
+    {
+        if(preg_match("#^(.+)\-(.+)$#", $fullname, $matches)) {
+            return array($matches[1], $matches[2]);
+        }
+        return array($fullname, null);
+    }
+}
+
+class SpmCmdList extends SpmCmd
+{
+    public function executeNonSugar()
+    {
+        list($keywords, $options) = self::getArgvParams(false, array('a', 'spm-path:'));
+        if(!empty($options['a'])) {
+            echo "Available:\n";
+            $this->spm->updateAvailable($options);
+            $this->spm->listAvailable(empty($keywords) ? null : reset($keywords));
+        }
+    }
+
+    public function execute()
+    {
+        list($keywords, $options) = self::getArgvParams(false, array('a', 'spm-path:'));
+        echo "Installed:\n";
+        $this->spm->listInstalled(empty($keywords) ? null : reset($keywords));
+        echo "Loaded:\n";
+        $this->spm->updateStage();
+        $this->spm->listLoaded(empty($keywords) ? null : reset($keywords));
+    }
+}
+
+class SpmCmdCheck extends SpmCmd
+{
+    public function execute()
+    {
+        list($subjects, $options) = self::getArgvParams(false, array('by-restore'));
+        if(!empty($options['by-restore'])) {
+            $this->spm->listRestoreConflicts();
+        }
+        $this->spm->updateCopiedFiles();
+        $this->spm->check();
+    }
+}
+
+class SpmCmdInstall extends SpmCmd
+{
+    public function execute()
+    {
+        list($packages, $options) = self::getArgvParams(1, array());
+        list($id_name, $version) = self::parsePackageName(reset($packages));
+        $this->spm->updateStage();
+        $this->spm->install($id_name, $version);
+    }
+}
+
+class SpmCmdUninstall extends SpmCmd
+{
+    public function execute()
+    {
+        list($packages, $options) = self::getArgvParams(1, array(
+            'remove-tables',
+            'remove-acl',
+            'remove-custom',
+            'remove-prefs',
+            'remove-relationships',
+            'not-uninstallable',
+        ));
+        list($id_name, $version) = self::parsePackageName(reset($packages));
+        $this->spm->uninstall($id_name, $version, $options);
+    }
+}
+
+class SpmCmdRemove extends SpmCmd
+{
+    public function execute()
+    {
+        list($packages, $options) = self::getArgvParams(1, array());
+        list($id_name, $version) = self::parsePackageName(reset($packages));
+        $this->spm->updateStage();
+        $this->spm->remove($id_name, $version);
+    }
+}
+
+class SpmCmdUpload extends SpmCmd
+{
+    public function execute()
+    {
+        list($packages, $options) = self::getArgvParams(1, array('no-php-check', 'spm-path:'));
+        list($id_name, $version) = self::parsePackageName(reset($packages));
+        $this->spm->updateAvailable($options);
+        $this->spm->upload($id_name, $version, $options);
+    }
+}
+
+class SpmCmdZip extends SpmCmd
+{
+    public function executeNonSugar()
+    {
+        list($packages, $options) = self::getArgvParams(1, array('no-php-check', 'spm-path:'));
+        list($id_name, $version) = self::parsePackageName(reset($packages));
+        $this->spm->updateAvailable($options);
+        $this->spm->zip($id_name, $version, $options);
+    }
+}
+
+class SpmCmdRepair extends SpmCmd
+{
+    public function execute()
+    {
+        list($subjects, $options) = self::getArgvParams(false, array('v'));
+        $this->spm->repair($options);
+    }
+}
+
+class SpmCmdDbquery extends SpmCmd
+{
+    public function execute()
+    {
+        list($subjects, $options) = self::getArgvParams(1, array());
+        $this->spm->dbquery(reset($subjects));
+    }
+}
+
+class SpmCmdCreate extends SpmCmd
+{
+    public function executeNonSugar()
+    {
+        echo "Package structure will be created in this directory.\n";
+
+        $defaultName = basename(getcwd());
+        echo "Input name of new package [$defaultName]: ";
+        $id_name = ($s = trim(fgets(STDIN))) ? $s : $defaultName;
+
+        $defaultAuthor = get_current_user();
+        echo "Input author name [$defaultAuthor]: ";
+        $author = ($s = trim(fgets(STDIN))) ? $s : $defaultAuthor;
+
+        echo "Input description: ";
+        $description = trim(fgets(STDIN));
+
+        $licensesDir = $_SERVER['HOME'].'/.spm/licenses';
+        do {
+            echo "Choose license among txt files in $licensesDir [n]:\n";
+            $licensesFiles = glob($licensesDir."/*.txt");
+            echo " n) none\n";
+            echo " r) rescan directory\n";
+            foreach($licensesFiles as $i => $file) {
+                echo " ".($i+1).") ".basename($file)."\n";
+            }
+            $answer = trim(fgets(STDIN));
+            $done = false;
+            if($answer == 'n' || $answer === '') {
+                $license = false;
+                $done = true;
+            }
+            elseif(is_numeric($answer) && isset($licensesFiles[$answer - 1])) {
+                $license = $licensesFiles[$answer - 1];
+                $done = true;
+            }
+        }
+        while(!$done);
+
+        $publishedDate = date('Y-m-d');
+        $id_name_quoted = var_export($id_name, true);
+        $description_quoted = var_export($description, true);
+        $author_quoted = var_export($author, true);
+
+        echo "Creating manifest.php ...\n";
+        if(file_exists('manifest.php')) {
+            echo "Error: manifest.php already exists.\n";
+        }
+        else {
+            file_put_contents('manifest.php', <<<MANIFEST
+<?php
+\$manifest = array(
+    'name' => $id_name_quoted,
+    'acceptable_sugar_versions' => array(),
+    'acceptable_sugar_flavors' => array('CE'),
+    'author' => $author_quoted,
+    'description' => $description_quoted,
+    'is_uninstallable' => true,
+    'published_date' => '$publishedDate',
+    'type' => 'module',
+    'version' => '1.0.0',
+);
+
+\$installdefs = array(
+    'id' => '$id_name',
+    'copy' => array(
+        array(
+            'from' => '<basepath>/source/copy',
+            'to' => '.'
+        ),
+    ),
+);
+
+MANIFEST
+);
+        }
+
+        echo "Creating source directory ...\n";
+        if(file_exists('source')) {
+            echo "Error: source already exists.\n";
+        }
+        else {
+            mkdir('source');
+            mkdir('source/copy');
+        }
+
+        echo "Creating README.txt ...\n";
+        if(file_exists('README.txt')) {
+            echo "Error: README.txt already exists.\n";
+        }
+        else {
+            touch('README.txt');
+        }
+
+        echo "Creating LICENSE.txt ...\n";
+        if(file_exists('LICENSE.txt')) {
+            echo "Error: LICENSE.txt already exists.\n";
+        }
+        else {
+            if($license) {
+                copy($license, 'LICENSE.txt');
+            }
+            else {
+                touch('LICENSE.txt');
+            }
+        }
+    }
+}
+
+class SpmCmdFile extends SpmCmd
+{
+    public function execute()
+    {
+        list($files, $options) = self::getArgvParams(false, array());
+        $sugarDir = getcwd();
+        chdir($this->spm->cwd);
+        $realFiles = array();
+        foreach($files as $file) {
+            $fullpath = realpath($file);
+            if(!$fullpath) {
+                $fullpath = $this->spm->cwd.'/'.$file;
+            }
+            if(file_exists($fullpath)) {
+                $realFiles[] = $fullpath;
+            }
+            else {
+                echo "File $file not found.\n";
+            }
+        }
+        chdir($sugarDir);
+        if(empty($files)) {
+            return;
+        }
+        $this->spm->updateCopiedFiles();
+        foreach($realFiles as $file) {
+            $path = ltrim(substr($file, strlen(getcwd())), '/');
+            $this->spm->listFileInfo($path);
+        }
+    }
+}
+
+if(!defined('SUGARCRM_PRE_INSTALL_FILE'))
+{
+    define('SUGARCRM_PRE_INSTALL_FILE', 'scripts/pre_install.php');
+    define('SUGARCRM_POST_INSTALL_FILE', 'scripts/post_install.php');
+    define('SUGARCRM_PRE_UNINSTALL_FILE', 'scripts/pre_uninstall.php');
+    define('SUGARCRM_POST_UNINSTALL_FILE', 'scripts/post_uninstall.php');
+}
+$cmd = SpmCmd::getCmdFromCli();
+if(!$cmd) {
+    $cmd = new SpmCmdHelp();
+}
+if(method_exists($cmd, 'executeNonSugar')) {
+    try {
+        $cmd->executeNonSugar();
+    }
+    catch (Exception $e) {
+        echo $e->getMessage(),"\n";
+        exit;
+    }
+}
+if(!method_exists($cmd, 'execute')) {
+    exit;
+}
+if(!Spm::enterSugar()) {
+    echo "SugarCRM root not found.\n";
+    exit;
+}
+
+require_once('ModuleInstall/PackageManager/PackageManager.php');
+class SpmPackageManager extends PackageManager
+{
+    public $options = array();
+    private $cleanUpDirs = array();
+
+    private function addToCleanup($dir)
+    {
+        if(empty($this->cleanUpDirs)) {
+            register_shutdown_function(array($this, "cleanUpTempDir"));
+        }
+        $this->cleanUpDirs[] = $dir;
+    }
+
+    public function cleanUpTempDir()
+    {
+        foreach($this->cleanUpDirs as $dir) {
+            rmdir_recursive($dir);
+        }
+    }
+
+    /**
+     * Добавлен запуск pre/post_install, dependencies
+     */
+    function performInstall($file, $silent=true){
+        global $sugar_config;
+        global $mod_strings;
+        global $current_language;
+        $base_upgrade_dir       = $this->upload_dir.'/upgrades';
+        $base_tmp_upgrade_dir   = "$base_upgrade_dir/temp";
+        if(!file_exists($base_tmp_upgrade_dir)){
+            mkdir_recursive($base_tmp_upgrade_dir, true);
+        }
+
+        $GLOBALS['log']->debug("INSTALLING: ".$file);
+        $mi = new ModuleInstaller();
+        $mi->silent = $silent;
+             $GLOBALS['log']->debug("ABOUT TO INSTALL: ".$file);
+        if(preg_match("#.*\.zip\$#", $file)) {
+             $GLOBALS['log']->debug("1: ".$file);
+            // handle manifest.php
+            $target_manifest = remove_file_extension( $file ) . '-manifest.php';
+            $dependencies = array();
+            include($target_manifest);
+            if(!empty($manifest['dependencies'])) {
+                $dependencies = $manifest['dependencies'];
+            }
+            $GLOBALS['log']->debug("2: ".$file);
+            $unzip_dir = mk_temp_dir( $base_tmp_upgrade_dir );
+            $this->addToCleanup($unzip_dir);
+            unzip($file, $unzip_dir );
+            $GLOBALS['log']->debug("3: ".$unzip_dir);
+            $id_name = $installdefs['id'];
+			$version = $manifest['version'];
+			$uh = new UpgradeHistory();
+            //check dependencies first
+            if(!empty($dependencies)) {
+                $not_found = $uh->checkDependencies($dependencies);
+                if(!empty($not_found) && count($not_found) > 0){
+                    throw new DependenciesException( $mod_strings['ERR_UW_NO_DEPENDENCY']."[".implode(',', $not_found)."]");
+                }
+            }
+			$previous_install = array();
+    		if(!empty($id_name) & !empty($version))
+    			$previous_install = $uh->determineIfUpgrade($id_name, $version);
+    		$previous_version = (empty($previous_install['version'])) ? '' : $previous_install['version'];
+    		$previous_id = (empty($previous_install['id'])) ? '' : $previous_install['id'];
+
+            $preInstallFile = "$unzip_dir/" . constant('SUGARCRM_PRE_INSTALL_FILE');
+            if(is_file($preInstallFile)) {
+                echo "{$mod_strings['LBL_UW_INCLUDING']}: $preInstallFile\n";
+                include($preInstallFile);
+                pre_install();
+            }
+
+            if(!empty($previous_version)){
+            	$mi->install($unzip_dir, true, $previous_version);
+            }else{
+            	$mi->install($unzip_dir);
+            }
+
+            $postInstallFile = "$unzip_dir/" . constant('SUGARCRM_POST_INSTALL_FILE');
+            if(is_file($postInstallFile))
+            {
+                echo "{$mod_strings['LBL_UW_INCLUDING']}: $postInstallFile\n";
+                include($postInstallFile);
+                post_install();
+            }
+
+            $GLOBALS['log']->debug("INSTALLED: ".$file);
+            $new_upgrade = new UpgradeHistory();
+            $new_upgrade->filename      = $file;
+            $new_upgrade->md5sum        = md5_file($file);
+            $new_upgrade->type          = $manifest['type'];
+            $new_upgrade->version       = $manifest['version'];
+            $new_upgrade->status        = "installed";
+            //$new_upgrade->author        = $manifest['author'];
+            $new_upgrade->name          = $manifest['name'];
+            $new_upgrade->description   = $manifest['description'];
+            $new_upgrade->id_name		= $id_name;
+			$serial_manifest = array();
+			$serial_manifest['manifest'] = (isset($manifest) ? $manifest : '');
+			$serial_manifest['installdefs'] = (isset($installdefs) ? $installdefs : '');
+			$serial_manifest['upgrade_manifest'] = (isset($upgrade_manifest) ? $upgrade_manifest : '');
+			$new_upgrade->manifest		= base64_encode(serialize($serial_manifest));
+            //$new_upgrade->unique_key    = (isset($manifest['unique_key'])) ? $manifest['unique_key'] : '';
+            $new_upgrade->save();
+                    //unlink($file);
+        }//fi
+    }
+
+    function performUninstall($name, $version){
+    	$uh = new SpmUpgradeHistory(); // overridden
+    	$uh->name = $name;
+    	$uh->id_name = $name;
+    	$uh->version = $version;
+    	$found = $uh->checkForExisting($uh);
+    	if($found != null){
+    		global $sugar_config;
+	        global $mod_strings;
+	        global $current_language;
+	        $base_upgrade_dir       = $this->upload_dir.'/upgrades';
+	        $base_tmp_upgrade_dir   = "$base_upgrade_dir/temp";
+            if(is_file($found->filename)){
+                $hash = md5($found->filename);
+                $_SESSION['file2Hash'][$hash] = $found->filename;
+                $_REQUEST['install_file'] = $hash; // used in ModuleInstaller
+                if(!isset($GLOBALS['mi_remove_tables']))$GLOBALS['mi_remove_tables'] = true;
+                $unzip_dir = mk_temp_dir( $base_tmp_upgrade_dir );
+                unzip($found->filename, $unzip_dir );
+                $mi = new SpmModuleInstaller();
+                $mi->options = $this->options;
+                $mi->silent = true;
+
+                $preUninstallFile = "$unzip_dir/" . constant('SUGARCRM_PRE_UNINSTALL_FILE');
+                if(is_file($preUninstallFile))
+                {
+                    echo "{$mod_strings['LBL_UW_INCLUDING']}: $preUninstallFile\n";
+                    include($preUninstallFile);
+                    pre_uninstall();
+                }
+
+                $mi->uninstall( "$unzip_dir");
+                $found->delete();
+                //unlink(remove_file_extension( $found->filename ) . '-manifest.php');
+                //unlink($found->filename);
+                unset($_SESSION['file2Hash'][$hash]);
+            }else{
+                echo "Warning: file {$found->filename} not found. Just deleting from upgrade_history.\n";
+                //file(s_ have been deleted or are not found in the directory, allow database delete to happen but no need to change filesystem
+                $found->delete();
+            }
+    	}
+        else {
+            throw new Exception("Рackage not found");
+        }
+    }
+}
+
+require_once('modules/Administration/UpgradeHistory.php');
+class SpmUpgradeHistory extends UpgradeHistory
+{
+    function checkForExisting($patch_to_check){
+        $uh = new UpgradeHistory();
+        if($patch_to_check != null){
+
+            if(empty($patch_to_check->id_name)){
+                $where = " WHERE name = '$patch_to_check->name' ";
+            }else{
+                $where = " WHERE id_name = '$patch_to_check->id_name' ";
+            }
+
+            if(!empty($patch_to_check->id)){
+                $where .= "  AND id != '$patch_to_check->id'  ";
+            }else{
+                $where .= "  AND id is not null  ";
+            }
+
+            if(!empty($patch_to_check->version)){ // version added
+                $where .= " AND version = '$patch_to_check->version' ";
+            }
+
+            $query = "SELECT id FROM " . $this->table_name . " ". $where;
+
+            $result = $uh->db->query($query);
+            if(empty($result)){
+                return null;
+            }
+            $row = $uh->db->fetchByAssoc($result);
+            if(empty($row)){
+                return null;
+            }
+            if(!empty($row['id'])){
+                return $uh->retrieve($row['id']);
+            }
+        }
+        return null;
+    }
+}
+
+require_once('ModuleInstall/ModuleInstaller.php');
+class SpmModuleInstaller extends ModuleInstaller
+{
+    public $options;
+
+    public function remove_acl_actions()
+    {
+        if(!empty($this->options['remove-acl'])) {
+            parent::remove_acl_actions();
+        }
+    }
+
+    public function uninstall_customizations($beans)
+    {
+        if(!empty($this->options['remove-custom'])) {
+            parent::uninstall_customizations($beans);
+        }
+    }
+
+    public function uninstall_user_prefs($module)
+    {
+        if(!empty($this->options['remove-prefs'])) {
+            parent::uninstall_user_prefs($module);
+        }
+    }
+
+    public function uninstall_relationships($include_studio_relationships = false)
+    {
+        if(!empty($this->options['remove-relationships'])) {
+            parent::uninstall_relationships($include_studio_relationships); //здесь из форм связанных модулей удаляются ссылки на модуль
+        }
+    }
+
+    /**
+     * Исправлена ошибка с удалением файлов, если они копировались в одну папку.
+     */
+    public function uninstall_copy(){
+		if(!empty($this->installdefs['copy'])){
+					foreach($this->installdefs['copy'] as $cp){
+						$cp['to'] = clean_path(str_replace('<basepath>', $this->base_dir, $cp['to']));
+						$cp['from'] = clean_path(str_replace('<basepath>', $this->base_dir, $cp['from']));
+						$GLOBALS['log']->debug('Unlink ' . $cp['to']);
+				/* BEGIN - RESTORE POINT - by MR. MILK August 31, 2005 02:22:11 PM */
+						//rmdir_recursive($cp['to']);
+
+						$backup_path = clean_path( remove_file_extension(urldecode(hashToFile($_REQUEST['install_file'])))."-restore/".$cp['to'] );
+						$this->uninstall_new_files($cp, $backup_path); //PEA: here uninstall all files
+						//$this->copy_path($backup_path, $cp['to'], $backup_path, true);
+				/* END - RESTORE POINT - by MR. MILK August 31, 2005 02:22:18 PM */
+					}
+					foreach($this->installdefs['copy'] as $cp){
+						$cp['to'] = clean_path(str_replace('<basepath>', $this->base_dir, $cp['to']));
+						$cp['from'] = clean_path(str_replace('<basepath>', $this->base_dir, $cp['from']));
+						$GLOBALS['log']->debug('Unlink ' . $cp['to']);
+				/* BEGIN - RESTORE POINT - by MR. MILK August 31, 2005 02:22:11 PM */
+						//rmdir_recursive($cp['to']);
+
+						$backup_path = clean_path( remove_file_extension(urldecode(hashToFile($_REQUEST['install_file'])))."-restore/".$cp['to'] );
+						//$this->uninstall_new_files($cp, $backup_path);
+						$this->copy_path($backup_path, $cp['to'], $backup_path, true); //PEA: now copy backup
+				/* END - RESTORE POINT - by MR. MILK August 31, 2005 02:22:18 PM */
+					}
+					$backup_path = clean_path( remove_file_extension(urldecode(hashToFile($_REQUEST['install_file'])))."-restore");
+					if(file_exists($backup_path))
+						rmdir_recursive($backup_path);
+				}
+	}
+}
+
+require_once('modules/Administration/QuickRepairAndRebuild.php');
+require_once('include/utils/layout_utils.php');
+class SpmRepairAndClear extends RepairAndClear
+{
+    public $sql;
+    public function repairDatabase()
+    {
+        global $dictionary, $mod_strings;
+        $_REQUEST['repair_silent']=1;
+        $_REQUEST['execute']=$this->execute;
+        $GLOBALS['reload_vardefs'] = true;
+        $hideModuleMenu = true;
+        include_once('modules/Administration/repairDatabase.php');
+        if(!empty($sql)) {
+            $qry_str = "";
+            foreach (explode("\n", $sql) as $line) {
+                if (!empty ($line) && substr($line, -2) != "*/") {
+                    $qry_str .= $line.";";
+                }
+            }
+            $this->sql = $qry_str;
+        }
+    }
+}
+
+try {
+    $cmd->execute();
+}
+catch (Exception $e) {
+    echo $e->getMessage(),"\n";
+}
+Spm::cleanupSugar();
