@@ -16,6 +16,8 @@ Command-line interface for managing SugarCRM packages.
 * search file among installed packages
 * search conflicts between packages (overlapping files)
 * create simple package with interactive dialogue
+* support sandbox (file with a list of required packages): compare with current, automatic installation
+* compare md5 checksums
 
 ## Requirements
 
@@ -28,4 +30,6 @@ Command-line interface for managing SugarCRM packages.
 ## Usage
 
 Put file `spm` in some directory. Then you can run it with `php /path/to/spm`.
+Run `php /path/to/spm help` to see manual.
+
 For many commands current directory must be inside of the SugarCRM directory.
