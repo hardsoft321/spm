@@ -11,7 +11,7 @@ class SpmCmdVersion extends SpmCmd
 {
     public function executeNonSugar()
     {
-        echo "1.1\n";
+        echo "1.1.1\n";
     }
 }
 
@@ -862,6 +862,7 @@ class Spm
         $show_output = !empty($options['v']);
         if($show_output) {
             ob_start();
+            $randc->oneLine = false;
         }
         $randc->repairAndClearAll(array('clearAll'),array(translate('LBL_ALL_MODULES')), false, $show_output);
         if($show_output) {
@@ -1114,6 +1115,13 @@ class Spm
                 echo "  {$row['id_name']}-{$row['version']}\n";
             }
         }
+        if(!empty($statusData['unknownReinstall'])) {
+            echo "Packages to reinstall after installing these packages:\n";
+            foreach($statusData['unknownReinstall'] as $pack) {
+                echo "  {$pack['id']}-{$pack['version']}".(!empty($pack['environment']) ? " ({$pack['environment']})" : "")."\n";
+            }
+        }
+        echo "\n";
         if(!empty($statusData['sandboxNotInstalled'])) {
             echo "Packages not yet installed (run `spm sandbox-install`):\n";
             foreach($statusData['sandboxNotInstalled'] as $pack) {
@@ -1143,6 +1151,7 @@ class Spm
             'environments' => array(),
             'needReinstall' => array(),
             'overwrites' => array(),
+            'unknownReinstall' => array(),
         );
         $packagesInFile = parse_ini_file($file, true);
         if($packagesInFile === false) {
@@ -1187,6 +1196,7 @@ class Spm
             else {
                 $inCurrentEnvironments = true;
             }
+            $packagesInFile[$section]['inCurrentEnvironments'] = $inCurrentEnvironments;
             if(!$inCurrentEnvironments) {
                 continue;
             }
@@ -1203,7 +1213,7 @@ class Spm
         }
 
         foreach($packagesInFile as $pack) {
-            if(empty($pack['overwrite'])) {
+            if(empty($pack['overwrite']) || !$pack['inCurrentEnvironments']) {
                 continue;
             }
             $overwrites = array_filter(explode(' ', $pack['overwrite']));
@@ -1219,6 +1229,20 @@ class Spm
             }
             if($needReinstall) {
                 $statusData['needReinstall'][$pack['id']] = $pack;
+                //TODO: check $pack overwrites recursively
+            }
+
+            $needReinstall = false;
+            foreach($statusData['sandboxUnknown'] as $pack2) {
+                if($pack2['id_name'] == $pack['id']) {
+                    $needReinstall = false;
+                }
+                elseif(in_array($pack2['id_name'], $overwrites)) {
+                    $needReinstall = true;
+                }
+            }
+            if($needReinstall) {
+                $statusData['unknownReinstall'][$pack['id']] = $pack;
                 //TODO: check $pack overwrites recursively
             }
         }
@@ -1636,7 +1660,6 @@ class SpmCmdCreate extends SpmCmd
     'type' => 'module',
     'version' => '1.0.0',
 );
-
 \$installdefs = array(
     'id' => '$id_name',
     'copy' => array(
@@ -2123,6 +2146,7 @@ require_once('include/utils/layout_utils.php');
 class SpmRepairAndClear extends RepairAndClear
 {
     public $sql;
+    public $oneLine = true;
     public function repairDatabase()
     {
         global $dictionary, $mod_strings;
@@ -2134,8 +2158,17 @@ class SpmRepairAndClear extends RepairAndClear
         if(!empty($sql)) {
             $qry_str = "";
             foreach (explode("\n", $sql) as $line) {
-                if (!empty ($line) && substr($line, -2) != "*/") {
-                    $qry_str .= $line.";";
+                if($this->oneLine) {
+                    if (!empty ($line) && substr($line, -2) != "*/") {
+                        $qry_str .= $line.";";
+                    }
+                }
+                else {
+                    $qry_str .= $line;
+                    if (!empty ($line) && substr($line, -2) != "*/") {
+                        $qry_str .= ";";
+                    }
+                    $qry_str .= "\n";
                 }
             }
             $this->sql = $qry_str;
