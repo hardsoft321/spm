@@ -7,12 +7,12 @@ Command-line interface for managing SugarCRM packages.
 * list currently installed packages (with search by package id)
 * list uploaded packages
 * install packages
-* uninstall packages
+* uninstall packages (without clearing user settings or modifying viewdefs by default)
 * upload packages from its sources
 * remove uploaded packages
 * zip sources into a package (with PHP syntax check)
 * run Quick Repair and Rebuild
-* run SQL-queries on SugarCRM database
+* run SQL-queries on SugarCRM database (queries can be checked against whitelist)
 * search file among installed packages
 * search conflicts between packages (overlapping files)
 * create simple package with interactive dialogue
