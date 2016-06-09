@@ -22,7 +22,7 @@ Command-line interface for managing SugarCRM packages.
 ## Requirements
 
 * Linux
-* SugarCRM (tested with CE v6.5.16)
+* SugarCRM/SuiteCRM
 * php5-sqlite
 * zip utility
 * zip php extension
