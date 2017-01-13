@@ -532,7 +532,7 @@ class Spm
             $packages[] = $row;
         }
         if(empty($packages)) {
-            throw new Exception("Package with id {$id_name} not installed");
+            throw new Exception("Package with id {$id_name} is not installed");
         }
         $package = reset($packages);
         if($package['type'] != 'module' && $package['type'] != 'langpack') {

@@ -2,11 +2,13 @@
 
 Command-line interface for managing SugarCRM packages.
 
+It is intended to deal with package sources, not with any repository like packagist.
+
 ## Features
 
 * list currently installed packages (with search by package id)
 * list uploaded packages
-* install packages
+* install uploaded packages
 * uninstall packages (without clearing user settings or modifying viewdefs by default)
 * upload packages from its sources
 * remove uploaded packages
@@ -33,3 +35,9 @@ Put file `spm` in some directory. Then you can run it with `php /path/to/spm`.
 Run `php /path/to/spm help` to see manual.
 
 For many commands current directory must be inside of the SugarCRM directory.
+
+---
+
+[Блог](http://blog321.ru/sugarcrm-packages-and-git/)
+
+Powered by [hardsoft321](http://hardsoft321.org/)
