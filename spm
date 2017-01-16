@@ -7,7 +7,7 @@
  * SugarCRM Package Manager
  */
 
-define('SPM_VERSION', '1.6.0');
+define('SPM_VERSION', '1.7.0');
 
 class SpmCmdHelp extends SpmCmd
 {
@@ -107,6 +107,9 @@ spm check
 
 spm file <file1> [<file2> ...]
     Try to search file(s) in the installed packages.
+    Options:
+        --sync - write file back to its package
+        --spm-path=<path> - search package sources on <path> in sync command
 
 spm create
     Run interactive dialogue and then create folder with simple package structure.
@@ -300,7 +303,7 @@ class Spm
         echo "{$fileInfo['file']}:\n";
         if(!empty($fileInfo['packages'])) {
             foreach($fileInfo['packages'] as $info) {
-                echo "  {$info['type']} from {$info['package_id_name']}-{$info['package_version']}"
+                echo "  {$info['type']} {$info['filename_from']} from {$info['package_id_name']}-{$info['package_version']}"
                     .($info['modified'] === null ? "" : " ".($info['modified'] ? "(modified)" : "(not modified)"))
                     .(!empty($info['overwrites']) ? ' - overwrites '.implode(' ', $info['overwrites']) : '')
                     ."\n";
@@ -322,7 +325,7 @@ class Spm
             'original' => null,
             'conflict' => false,
         );
-        $stmt = $this->getDb()->prepare("SELECT package_id_name, package_version, crc, type FROM files WHERE filename = :filename ORDER BY date_entered DESC");
+        $stmt = $this->getDb()->prepare("SELECT package_id_name, package_version, crc, type, filename_from FROM files WHERE filename = :filename ORDER BY date_entered DESC");
         $stmt->execute(array(
             ':filename' => $file,
         ));
@@ -814,6 +817,31 @@ class Spm
         }
     }
 
+    public function searchFileInAvailable($file)
+    {
+        $stmt = $this->getUserDb()->prepare("SELECT filename FROM available WHERE id_name = :id_name ORDER BY version COLLATE NATURAL_CMP DESC");
+        if(!$stmt) {
+            throw new Exception(implode(' ', $this->getUserDb()->errorInfo()));
+        }
+        $files = array();
+        $fileInfo = $this->getFileInfo($file);
+        if(!empty($fileInfo['packages'])) {
+            foreach($fileInfo['packages'] as $info) {
+                $stmt->execute(array(':id_name' => $info['package_id_name']));
+                foreach($stmt->fetchAll() as $packRow) {
+                    $f = realpath($packRow['filename'].'/'.$info['filename_from']);
+                    if(file_exists($f)) {
+                        $files[$f] = array(
+                            'path' => $f,
+                            'info' => $info,
+                        );
+                    }
+                }
+            }
+        }
+        return $files;
+    }
+
     protected static function searchPackages($path, $prefix = '')
     {
         $packages = array();
@@ -846,10 +874,11 @@ class Spm
             throw new Exception("ZipArchive class required but not exists.");
         }
         $this->getDb()->exec("DROP TABLE IF EXISTS files");
-        $this->getDb()->exec("CREATE TABLE files (filename TEXT, package_id_name TEXT COLLATE NOCASE, package_version TEXT, crc INT, type TEXT, date_entered TEXT)");
-        $stmt = $this->getDb()->prepare("INSERT INTO files (filename, package_id_name, package_version, crc, type, date_entered)
-            VALUES (:filename, :id_name, :version, :crc, :type, :date_entered)");
+        $this->getDb()->exec("CREATE TABLE files (filename TEXT, filename_from TEXT, package_id_name TEXT COLLATE NOCASE, package_version TEXT, crc INT, type TEXT, date_entered TEXT)");
+        $stmt = $this->getDb()->prepare("INSERT INTO files (filename, filename_from, package_id_name, package_version, crc, type, date_entered)
+            VALUES (:filename, :filename_from, :id_name, :version, :crc, :type, :date_entered)");
         $stmt->bindParam(':filename', $filename);
+        $stmt->bindParam(':filename_from', $filename_from);
         $stmt->bindParam(':id_name', $id_name);
         $stmt->bindParam(':version', $version);
         $stmt->bindParam(':crc', $crc);
@@ -959,10 +988,12 @@ class Spm
                         $stat = $zip->statIndex($i);
                         if(!empty($stat['crc'])) {
                             $filename = false;
+                            $filename_from = false;
                             $cp1 = false;
                             foreach($copyDefs as $cp) {
                                 if(strpos($stat['name'], $cp['from']) === 0) {
                                     $filename = rtrim(($cp['to'] ? $cp['to'].'/' : '').ltrim(substr($stat['name'], strlen($cp['from'])), '/'), '/');
+                                    $filename_from = $stat['name'];
                                     $cp1 = $cp;
                                     break;
                                 }
@@ -2116,10 +2147,16 @@ class SpmCmdFile extends SpmCmd
 {
     public function execute()
     {
-        list($files, $options) = self::getArgvParams(false, array());
+        list($files, $options) = self::getArgvParams(false, array(
+            'sync',
+            'spm-path:',
+        ));
         $sugarDir = getcwd();
         chdir($this->spm->cwd);
         $realFiles = array();
+        if(empty($files)) {
+            throw new Exception("You must specify a file");
+        }
         foreach($files as $file) {
             $fullpath = realpath($file);
             if(!$fullpath) {
@@ -2133,11 +2170,79 @@ class SpmCmdFile extends SpmCmd
             }
         }
         chdir($sugarDir);
-        if(empty($files)) {
+        if(empty($realFiles)) {
             return;
         }
         $this->spm->updateCopiedFiles();
         $this->spm->updatePackagesOverwrites();
+
+        if(!empty($options['sync'])) {
+            $syncedFiles = array();
+            $this->spm->updateAvailable($options);
+            $realFiles = array_unique($realFiles);
+            foreach($realFiles as $file) {
+                $path = ltrim(substr($file, strlen(getcwd())), '/');
+                $md5 = md5_file($path);
+                echo "\n{$path}:\n";
+                $variants = $this->spm->searchFileInAvailable($path);
+                $variants = array_values($variants);
+                if(!empty($variants)) {
+                    $quit = false;
+                    $done = false;
+                    do {
+                        foreach($variants as $i => $var) {
+                            $varMd5 = md5_file($var['path']);
+                            echo "  ".($i+1).") Rewrite {$var['info']['type']} {$var['path']}".($md5 === $varMd5 ? " (not modified)" : " (modified)")."\n";
+                        }
+                        echo "  s) Skip this file\n";
+                        echo "  q) Quit\n";
+                        $answer = trim(fgets(STDIN));
+                        if($answer == 's') {
+                            $done = true;
+                        }
+                        elseif($answer == 'q' || $answer === '') {
+                            $quit = true;
+                        }
+                        elseif(is_numeric($answer) && isset($variants[$answer - 1])) {
+                            $file_to = $variants[$answer - 1]['path'];
+                            echo "Rewrite {$file_to} with {$file} ...";
+                            if(copy($file, $file_to)) {
+                                $syncedFiles[] = $file;
+                                echo " Ok\n";
+                                $done = true;
+                            }
+                            else {
+                                echo " FAIL\n";
+                            }
+                        }
+                    }
+                    while(!$done && !$quit);
+
+                    if($quit) {
+                        break;
+                    }
+                }
+                else {
+                    echo "  No package found\n";
+                }
+            }
+            if(!empty($syncedFiles)) {
+                echo "\nSynchronized files:\n\n";
+                foreach($syncedFiles as $file) {
+                    echo "  $file\n";
+                }
+                echo "\nSkipped files:\n\n";
+                foreach(array_diff($realFiles, $syncedFiles) as $file) {
+                    echo "  $file\n";
+                }
+                echo "\nDone\n";
+            }
+            else {
+                echo "\nNo changes was made.\n";
+            }
+            return;
+        }
+
         foreach($realFiles as $file) {
             $path = ltrim(substr($file, strlen(getcwd())), '/');
             $fileInfo = $this->spm->getFileInfo($path);
