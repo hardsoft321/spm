@@ -976,7 +976,24 @@ class Spm
                     }
                 }
 
-                //TODO: relationships, custom_fields, dashlets, image_dir, dcaction, connectors
+                if(!empty($installdefs['relationships'])) {
+                    foreach($installdefs['relationships'] as $relationship) {
+                        if(empty($relationship['meta_data'])) {
+                            continue;
+                        }
+                        $from = ltrim(str_replace('<basepath>', '', $relationship['meta_data']), '/');
+                        $filename = basename ( $relationship [ 'meta_data' ] ) ;
+                        $path = 'custom/metadata/' . $filename;
+                        $copyDefs[] = array(
+                            'from' => $from,
+                            'to' => $path,
+                            'type' => 'relationships',
+                        );
+                        //TODO: module_vardefs, module_layoutdefs
+                    }
+                }
+
+                //TODO: custom_fields, dashlets, image_dir, dcaction, connectors
                 if(empty($copyDefs)) {
                     continue;
                 }
