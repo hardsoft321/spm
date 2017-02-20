@@ -7,7 +7,7 @@
  * SugarCRM Package Manager
  */
 
-define('SPM_VERSION', '1.7.0');
+define('SPM_VERSION', '1.7.1');
 
 class SpmCmdHelp extends SpmCmd
 {
@@ -2217,7 +2217,7 @@ class SpmCmdFile extends SpmCmd
                         if($answer == 's') {
                             $done = true;
                         }
-                        elseif($answer == 'q' || $answer === '') {
+                        elseif($answer == 'q') {
                             $quit = true;
                         }
                         elseif(is_numeric($answer) && isset($variants[$answer - 1])) {
@@ -2444,6 +2444,7 @@ class SpmPackageManager extends PackageManager
             // handle manifest.php
             $target_manifest = remove_file_extension( $file ) . '-manifest.php';
             $dependencies = array();
+            $installdefs = array();
             include($target_manifest);
             if(!empty($manifest['dependencies'])) {
                 $dependencies = $manifest['dependencies'];
@@ -2483,7 +2484,21 @@ class SpmPackageManager extends PackageManager
                 }else{
                     $mi->install($unzip_dir);
                 }
-            } //TODO: else { run pre_execute, post_execute }
+            }
+            else {
+                if(isset($installdefs['beans'])){
+                    foreach($installdefs['beans'] as $bean){
+                        if(!empty($bean['module']) && !empty($bean['class']) && !empty($bean['path'])){
+                            $module = $bean['module'];
+                            if($bean['tab']){
+                                $tab_modules[] = $module;
+                                UpdateSystemTabs('Add', $tab_modules);
+                            }
+                        }
+                    }
+                }
+                //TODO: run pre_execute, post_execute
+            }
 
             if($type == 'langpack') {
                 $langInfo = $this->getLangInfo($manifest, $unzip_dir);
@@ -2559,6 +2574,7 @@ class SpmPackageManager extends PackageManager
                 if(empty($this->options['no-copy'])) {
                     $mi->uninstall( "$unzip_dir");
                 }
+                //TODO: restore sytem tabs
 
                 if($found->type == 'langpack') {
                     $langInfo = $this->getLangInfo(array(), $unzip_dir); //TODO: manifest
