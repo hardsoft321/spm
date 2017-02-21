@@ -2174,6 +2174,7 @@ class SpmCmdFile extends SpmCmd
         if(empty($files)) {
             throw new Exception("You must specify a file");
         }
+        $wrongFiles = array();
         foreach($files as $file) {
             $fullpath = realpath($file);
             if(!$fullpath) {
@@ -2183,6 +2184,7 @@ class SpmCmdFile extends SpmCmd
                 $realFiles[] = $fullpath;
             }
             else {
+                $wrongFiles[] = $fullpath;
                 echo "File $file not found.\n";
             }
         }
@@ -2232,6 +2234,9 @@ class SpmCmdFile extends SpmCmd
                                 echo " FAIL\n";
                             }
                         }
+                        if(!$done && !$quit) {
+                            echo "Please repeat\n";
+                        }
                     }
                     while(!$done && !$quit);
 
@@ -2250,6 +2255,9 @@ class SpmCmdFile extends SpmCmd
                 }
                 echo "\nSkipped files:\n\n";
                 foreach(array_diff($realFiles, $syncedFiles) as $file) {
+                    echo "  $file\n";
+                }
+                foreach($wrongFiles as $file) {
                     echo "  $file\n";
                 }
                 echo "\nDone\n";
