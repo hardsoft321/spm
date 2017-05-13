@@ -1089,6 +1089,12 @@ class Spm
                 }
                 echo "Query: $stmt\n";
                 $res = $db->query($stmt,true,'Executing repair query from spm: ');
+                $head = $db->getFieldsArray($res);
+                if(!empty($head)) {
+                    while($row = $db->fetchByAssoc($res, false)) {
+                        print_r($row);
+                    }
+                }
                 echo ($res ? "Done" : "Fail"),"\n";
             }
         }
@@ -2142,7 +2148,7 @@ MANIFEST
         }
         else {
             touch('README.txt');
-            file_put_contents('README.txt', $description);
+            file_put_contents('README.txt', $description."\n");
         }
 
         echo "Creating LICENSE.txt ...\n";
