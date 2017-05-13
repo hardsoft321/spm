@@ -1572,10 +1572,59 @@ timestamp: ".date("Y-m-d H:i:s")."
     {
         require_once 'include/utils/file_utils.php';
         $ignoreDirs = array('cache', 'upload', '.git');
+        $md5arr = generateMD5array('./', $ignoreDirs);
+
+        $ignorePaths = array();
         if(file_exists('.spmignore')) {
-            $ignoreDirs = array_merge($ignoreDirs, file('.spmignore', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES));
+            $ignorePaths = array_merge($ignorePaths, file('.spmignore', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES));
         }
-        return generateMD5array('./', $ignoreDirs);
+        if(file_exists('.gitmodules')) {
+            $submodules = parse_ini_file('.gitmodules', true);
+            foreach($submodules as $mod) {
+                $ignorePaths[] = $mod['path'].'/*';
+            }
+        }
+
+        $md5arrFiltered = array();
+        foreach($md5arr as $filename => $md5) {
+            if(substr($filename, 0, 2) == './') {
+                $filename1 = substr($filename, 2);
+            }
+
+            $ignore = false;
+            foreach($ignorePaths as $mask) {
+                if(fnmatch($mask, $filename1)) {
+                    $ignore = true;
+                    break;
+                }
+            }
+            if($ignore) {
+                continue;
+            }
+
+            $md5arrFiltered[$filename1] = $md5;
+        }
+
+        $gitIgnoreFiles = array();
+        $descriptorspec = array(
+            0 => array("pipe", "r"),
+            1 => array("pipe", "w"),
+        );
+        $gitIgnoreProc = proc_open('git check-ignore --stdin', $descriptorspec, $pipes);
+        if (is_resource($gitIgnoreProc)) {
+            foreach($md5arrFiltered as $filename => $md5) {
+                fwrite($pipes[0], $filename);
+                fwrite($pipes[0], PHP_EOL);
+            }
+            fclose($pipes[0]);
+            while($line = fgets($pipes[1])) {
+                $gitIgnoreFiles[trim($line)] = 1;
+            }
+            fclose($pipes[1]);
+            proc_close($gitIgnoreProc);
+        }
+
+        return array_diff_key($md5arrFiltered, $gitIgnoreFiles);
     }
 
     public function md5Compare($file1, $file2 = null)
