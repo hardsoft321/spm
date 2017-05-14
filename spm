@@ -915,6 +915,16 @@ class Spm
                     }
                 }
 
+                if(!empty($installdefs['image_dir'])) {
+                    $from = clean_path(ltrim(str_replace('<basepath>', '', $installdefs['image_dir']), '/'));
+                    $to = ltrim(substr(realpath($sugarPath.'/custom/themes'), strlen($sugarPath)), '/');
+                    $copyDefs[] = array(
+                        'from' => $from,
+                        'to' => $to,
+                        'type' => 'image_dir',
+                    );
+                }
+
                 foreach($mi->extensions as $extname => $ext) {
                     $section = $ext["section"];
                     if(!method_exists($mi, "install_$extname") && !empty($ext["section"])) {
@@ -993,7 +1003,7 @@ class Spm
                     }
                 }
 
-                //TODO: custom_fields, dashlets, image_dir, dcaction, connectors
+                //TODO: custom_fields, dashlets, dcaction, connectors
                 if(empty($copyDefs)) {
                     continue;
                 }
