@@ -7,7 +7,7 @@
  * SugarCRM Package Manager
  */
 
-define('SPM_VERSION', '1.8.0');
+define('SPM_VERSION', '1.8.1');
 
 class SpmCmdHelp extends SpmCmd
 {
@@ -1085,20 +1085,38 @@ class Spm
             ),
             preg_replace('#(/\*.+?\*/\n*)#', '', $sql)
         );
+        $toRun = array();
+        $toSkip = array();
         foreach (explode(";", $sql) as $stmt) {
             $stmt = trim($stmt);
 
             if (!empty ($stmt)) {
-                if($allowedQueries !== null && empty($options['f'])) {
-                    if(!in_array($stmt, $allowedQueries)) {
-                        if(!empty($options['s'])) {
-                            continue;
-                        }
-                        throw new Exception("Statement is not allowed. Write it into .spmqueries.php file or use command options to force query: {$stmt}");
-                    }
+                if($allowedQueries !== null && empty($options['f']) && !in_array($stmt, $allowedQueries)) {
+                    $toSkip[] = $stmt;
                 }
+                else {
+                    $toRun[] = $stmt;
+                }
+            }
+        }
+
+        if(!empty($toSkip)) {
+            if(empty($options['s'])) {
+                throw new Exception("Statement is not allowed. Write it into .spmqueries.php file or use command options to force query: "
+                    .implode(";", $toSkip));
+            }
+            foreach($toSkip as $stmt) {
+                echo "Skip query: $stmt\n";
+            }
+        }
+
+        foreach($toRun as $stmt) {
                 echo "Query: $stmt\n";
-                $res = $db->query($stmt,true,'Executing repair query from spm: ');
+                $res = $db->query($stmt);
+                $error = $db->checkError();
+                if(!$res || $error) {
+                    throw new Exception("Error executing sql query");
+                }
                 $head = $db->getFieldsArray($res);
                 if(!empty($head)) {
                     while($row = $db->fetchByAssoc($res, false)) {
@@ -1106,7 +1124,6 @@ class Spm
                     }
                 }
                 echo ($res ? "Done" : "Fail"),"\n";
-            }
         }
     }
 
@@ -2080,6 +2097,7 @@ class SpmCmdDbquery extends SpmCmd
             throw new Exception("Unknown option ".implode(' ', $subjects));
         }
         if(empty($subjects)) {
+            echo "Reading sql statements from stdin, press Ctrl+D to exit\n";
             $sql = '';
             while($line = fgets(STDIN)) {
               $sql .= $line."\n";
