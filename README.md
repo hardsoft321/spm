@@ -29,10 +29,17 @@ It is intended to deal with package sources, not with any repository like packag
 * zip utility
 * zip php extension
 
+## Build
+```sh
+composer install
+php -d phar.readonly=0 build.php
+```
+File `dist/spm.phar` will appear.
+
 ## Usage
 
-Put file `spm` in some directory. Then you can run it with `php /path/to/spm`.
-Run `php /path/to/spm help` to see manual.
+Under your path create a link `spm` to `dist/spm.phar`.
+Run `spm help` to see manual.
 
 For many commands current directory must be inside of the SugarCRM directory.
 
