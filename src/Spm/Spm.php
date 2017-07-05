@@ -1263,7 +1263,7 @@ timestamp: ".date("Y-m-d H:i:s")."
         foreach($packagesInDb as $row) {
             $inFile = false;
             foreach($packagesInFile as $pack) {
-                if($pack['id'] == $row['id_name'] && strnatcmp($pack['version'], $row['version']) >= 0) {
+                if(strcasecmp($pack['id'], $row['id_name']) == 0 && strnatcmp($pack['version'], $row['version']) >= 0) {
                     $inFile = true;
                     break;
                 }
@@ -1294,7 +1294,7 @@ timestamp: ".date("Y-m-d H:i:s")."
             }
             $inDb = false;
             foreach($packagesInDb as $row) {
-                if($pack['id'] == $row['id_name'] && strnatcmp($row['version'], $pack['version']) >= 0) {
+                if(strcasecmp($pack['id'], $row['id_name']) == 0 && strnatcmp($row['version'], $pack['version']) >= 0) {
                     $inDb = true;
                     break;
                 }
