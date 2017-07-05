@@ -11,10 +11,10 @@ class StatusCmd extends Base
 {
     public function execute()
     {
-        list($environments, $options) = self::getArgvParams(false, array('file:', 'input'));
+        list($x, $options) = self::getArgvParams(0, array('file:', 'input', 'env:'));
         if(!empty($options['file']) && !empty($options['input'])) {
             throw new \Exception("Options conflict: file and input");
         }
-        $this->spm->sandboxStatus($environments, $options);
+        $this->spm->sandboxStatus($options);
     }
 }

@@ -118,22 +118,26 @@ spm sandbox-init
 spm sbinit
     This is an alias for `spm sandbox-init`.
 
-spm sandbox-status [environment1 [environment2 ...]]
+spm sandbox-status
     Show difference between currently installed packages and sandbox file.
-    Multiple environments separated by spaces may be depicted. By default,
-    packages with empty environment used for building difference.
+    Multiple environments separated by spaces may be depicted in env option. By default,
+    packages with empty environment (or equals to default) used for building difference.
+    For example, run `spm sandbox-status --env="default develop"` to see status
+    of packages without environment (default) or with environment `develop`.
     Options:
         --file=<file> - path to sandbox file, use it to compare with other installation
         --input - use standard input instead of file
+        --env="<environments>" - environments separated by spaces (=default if empty)
 
 spm sbstatus
     This is an alias for `spm sandbox-status`.
 
-spm sandbox-install [environment1 [environment2 ...]]
+spm sandbox-install
     Run installation of packages listed in `spm sandbox-status` (including reinstall section).
     Options:
         --file=<file> - path to sandbox file (if not default)
         --input - use standard input instead of file
+        --env="<environments>" - environments separated by spaces (=default if empty)
         --no-uninstall - do not uninstall previous versions of installing packages
         + all options from `spm install` command
         + all options from `spm uninstall` command

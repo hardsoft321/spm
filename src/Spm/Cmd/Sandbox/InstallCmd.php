@@ -11,13 +11,13 @@ class InstallCmd extends Base
 {
     public function execute()
     {
-        $allowedOptions = array('file:', 'no-uninstall', 'input');
+        $allowedOptions = array('file:', 'no-uninstall', 'input', 'env:');
         $allowedOptions = array_merge($allowedOptions, \Spm\Cmd\InstallCmd::$ALLOWED_OPTIONS);
         $allowedOptions = array_merge($allowedOptions, \Spm\Cmd\UninstallCmd::$ALLOWED_OPTIONS);
-        list($environments, $options) = self::getArgvParams(false, $allowedOptions);
+        list($x, $options) = self::getArgvParams(0, $allowedOptions);
         if(!empty($options['file']) && !empty($options['input'])) {
             throw new \Exception("Options conflict: file and input");
         }
-        $this->spm->sandboxInstall($environments, $options);
+        $this->spm->sandboxInstall($options);
     }
 }

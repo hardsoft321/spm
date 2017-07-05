@@ -35,6 +35,8 @@ class Spm
     public $packagesInStaging = array();
     public $packagesAvailable = array();
 
+    protected static $DEFAULT_ENVIRONMENT_NAME = 'default';
+
     /**
      * Simple method to find conflicts. Use it if `check` doesn't work.
      */
@@ -1176,17 +1178,14 @@ timestamp: ".date("Y-m-d H:i:s")."
         return file_exists($this->sandboxFile);
     }
 
-    public function sandboxStatus($environments = array(), $options = array())
+    public function sandboxStatus($options = array())
     {
-        $statusData = $this->getSandboxStatusData($options, $environments);
-        $incorrectEnvironments = array_diff($environments, $statusData['environments']);
-        if(!empty($incorrectEnvironments)) {
-            echo "Warning: unknown environments - ".implode(' ', $incorrectEnvironments)."\n";
+        $statusData = $this->getSandboxStatusData($options);
+        if(!empty($statusData['incorrectEnvironments'])) {
+            echo "Warning: unknown environments - ".implode(' ', $statusData['incorrectEnvironments'])."\n";
         }
-        if(!empty($statusData['environments']) || !empty($environments)) {
-            echo "Current environments: ".(empty($environments) ? "<default>" : implode(' ', $environments))
+        echo "Current environments: ".implode(' ', $statusData['currentEnvironments'])
                 .". Available environments: ".implode(' ', $statusData['environments']).".\n";
-        }
         if(!empty($statusData['sandboxUnknown'])) {
             echo "New installed packages found (write to {$this->sandboxFile}):\n";
             foreach($statusData['sandboxUnknown'] as $row) {
@@ -1214,9 +1213,18 @@ timestamp: ".date("Y-m-d H:i:s")."
         }
     }
 
-    public function getSandboxStatusData($options = array(), $environments = array())
+    public function getSandboxStatusData($options = array())
     {
         global $db;
+
+        $currentEnvironments = null;
+        if(!empty($options['env'])) {
+            $currentEnvironments = array_filter(explode(' ', $options['env']));
+        }
+        if(empty($currentEnvironments)) {
+            $currentEnvironments = array(self::$DEFAULT_ENVIRONMENT_NAME);
+        }
+
         if(!empty($options['input'])) {
             $ini_string = '';
             while($line = fgets(STDIN)) {
@@ -1234,6 +1242,8 @@ timestamp: ".date("Y-m-d H:i:s")."
             'sandboxUnknown' => array(),
             'sandboxNotInstalled' => array(),
             'environments' => array(),
+            'currentEnvironments' => $currentEnvironments,
+            'incorrectEnvironments' => array(),
             'needReinstall' => array(),
             'overwrites' => array(),
             'unknownReinstall' => array(),
@@ -1270,17 +1280,13 @@ timestamp: ".date("Y-m-d H:i:s")."
                     echo "Warning: unknown key $key in $section section\n";
                 }
             }
-            if(!empty($pack['environment'])) {
-                $inCurrentEnvironments = false;
-                foreach(explode(' ', $pack['environment']) as $env) {
-                    $statusData['environments'][$env] = $env;
-                    if(in_array($env, $environments)) {
-                        $inCurrentEnvironments = true;
-                    }
+            $packEnvironments = !empty($pack['environment']) ? explode(' ', $pack['environment']) : array(self::$DEFAULT_ENVIRONMENT_NAME);
+            $inCurrentEnvironments = false;
+            foreach($packEnvironments as $env) {
+                $statusData['environments'][$env] = $env;
+                if(in_array($env, $currentEnvironments)) {
+                    $inCurrentEnvironments = true;
                 }
-            }
-            else {
-                $inCurrentEnvironments = true;
             }
             $packagesInFile[$section]['inCurrentEnvironments'] = $inCurrentEnvironments;
             if(!$inCurrentEnvironments) {
@@ -1320,6 +1326,8 @@ timestamp: ".date("Y-m-d H:i:s")."
 
         $statusData['needReinstall'] = $this->getReinstalls($statusData['sandboxNotInstalled'], $packagesInFile);
         $statusData['unknownReinstall'] = $this->getReinstalls($statusData['sandboxUnknown'], $packagesInFile);
+
+        $statusData['incorrectEnvironments'] = array_diff($statusData['currentEnvironments'], $statusData['environments']);
         return $statusData;
     }
 
@@ -1367,9 +1375,12 @@ timestamp: ".date("Y-m-d H:i:s")."
         }
     }
 
-    public function sandboxInstall($environments = array(), $options = array())
+    public function sandboxInstall($options = array())
     {
-        $statusData = $this->getSandboxStatusData($options, $environments);
+        $statusData = $this->getSandboxStatusData($options);
+        if(!empty($statusData['incorrectEnvironments'])) {
+            echo "Warning: unknown environments - ".implode(' ', $statusData['incorrectEnvironments'])."\n";
+        }
         if(empty($statusData['sandboxNotInstalled'])) {
             return;
         }
