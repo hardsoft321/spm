@@ -11,7 +11,6 @@ class RemoveCmd extends Base
     {
         list($packages, $options) = self::getArgvParams(1, array());
         list($id_name, $version) = self::parsePackageName(reset($packages));
-        $this->spm->updateStage();
         $this->spm->remove($id_name, $version);
     }
 }

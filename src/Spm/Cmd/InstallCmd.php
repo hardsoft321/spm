@@ -17,7 +17,6 @@ class InstallCmd extends Base
     {
         list($packages, $options) = self::getArgvParams(1, self::$ALLOWED_OPTIONS);
         list($id_name, $version) = self::parsePackageName(reset($packages));
-        $this->spm->updateStage();
         $this->spm->install($id_name, $version, $options);
     }
 }

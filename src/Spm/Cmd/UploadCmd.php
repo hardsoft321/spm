@@ -11,7 +11,9 @@ class UploadCmd extends Base
     {
         list($packages, $options) = self::getArgvParams(1, array('no-php-check', 'spm-path:'));
         list($id_name, $version) = self::parsePackageName(reset($packages));
-        $this->spm->updateAvailable($options);
+        if(!empty($options['spm-path'])) {
+            $this->spm->spmPath = $options['spm-path'];
+        }
         $this->spm->upload($id_name, $version, $options);
     }
 }

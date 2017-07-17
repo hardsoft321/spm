@@ -37,12 +37,12 @@ class FileCmd extends Base
         if(empty($realFiles)) {
             return;
         }
-        $this->spm->updateCopiedFiles();
-        $this->spm->updatePackagesOverwrites();
 
         if(!empty($options['sync'])) {
             $syncedFiles = array();
-            $this->spm->updateAvailable($options);
+            if(!empty($options['spm-path'])) {
+                $this->spm->spmPath = $options['spm-path'];
+            }
             $realFiles = array_unique($realFiles);
             foreach($realFiles as $file) {
                 $path = ltrim(substr($file, strlen(getcwd())), '/');

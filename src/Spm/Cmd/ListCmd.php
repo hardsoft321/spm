@@ -10,9 +10,14 @@ class ListCmd extends Base
     public function executeNonSugar()
     {
         list($keywords, $options) = self::getArgvParams(false, array('a', 'spm-path:', 'each-version'));
+        if(!empty($keywords) && count($keywords) > 1) {
+            echo "Only first keyword is used to filter packages\n";
+        }
         if(!empty($options['a'])) {
             echo "Available:\n";
-            $this->spm->updateAvailable($options);
+            if(!empty($options['spm-path'])) {
+                $this->spm->spmPath = $options['spm-path'];
+            }
             $this->spm->listAvailable(empty($keywords) ? null : reset($keywords), $options);
         }
     }
@@ -23,7 +28,6 @@ class ListCmd extends Base
         echo "Installed:\n";
         $this->spm->listInstalled(empty($keywords) ? null : reset($keywords), $options);
         echo "Loaded:\n";
-        $this->spm->updateStage();
         $this->spm->listLoaded(empty($keywords) ? null : reset($keywords), $options);
     }
 }
