@@ -31,6 +31,7 @@ class Spm
     public $sandboxFile = '.spmsandbox';
     public $lockFile = '.spm.lock';
     public $logFile = 'spm.log';
+    public $zipIgnore = array('.git');
     protected $packagesOverwrites;
     protected $packagesInStaging;
     protected $packagesAvailable;
@@ -491,12 +492,9 @@ class Spm
         if(!is_dir("$base_upgrade_dir/$upgrade_zip_type") && !\UploadStream::mkdir("$base_upgrade_dir/$upgrade_zip_type", 0770, STREAM_MKDIR_RECURSIVE)) {
             throw new \Exception("Cannot create directory $base_upgrade_dir/$upgrade_zip_type.");
         };
-        /* Создание zip-пакета */
-        $command = "cd {$row['filename']}; pwd; zip -r '".getcwd()."/".\UploadStream::path($target_path)."' ./* -x \"*.git*\"";
-        $out = `$command`;
-        $hasErrors = strpos($out, 'warning: ');
+        $this->createZip($row['filename'], getcwd()."/".\UploadStream::path($target_path));
         if(!is_file($target_path)) {
-            throw new \Exception("Cannot create file $target_path.\n".$out);
+            throw new \Exception("Cannot create file $target_path.");
         }
 
         $target_manifest = remove_file_extension( $target_path ) . "-manifest.php";
@@ -505,10 +503,6 @@ class Spm
         if( isset($manifest['icon']) && $manifest['icon'] != "" ){
              $icon_location = $row['filename'].'/'.$manifest['icon'];
              copy($icon_location, remove_file_extension( $target_path )."-icon.".pathinfo($icon_location, PATHINFO_EXTENSION));
-        }
-
-        if($hasErrors) {
-            echo "File uploaded, but there was warnings: ",$out;
         }
     }
 
@@ -547,16 +541,79 @@ class Spm
         while(file_exists($target_path));
 
         echo "Creating file {$target_path} ...\n";
-        /* Создание zip-пакета */
-        $command = "cd {$row['filename']}; pwd; zip -r '".$target_path."' ./* -x \"*.git*\"";
-        $out = `$command`;
-        $hasErrors = strpos($out, 'warning: ');
+        $this->createZip($row['filename'], $target_path);
         if(!is_file($target_path)) {
-            throw new \Exception("Cannot create file $target_path.\n".$out);
+            throw new \Exception("Cannot create file $target_path.");
         }
+    }
 
-        if($hasErrors) {
-            echo "File created, but there was warnings: ",$out;
+    public function createZip($source, $target)
+    {
+        $USE_BIN = false;
+        if($USE_BIN) {
+            $command = "cd {$source}; pwd; zip -r '".$target."' ./* -x \"*.git*\"";
+            $out = `$command`;
+            $hasErrors = strpos($out, 'warning: ');
+            if(!is_file($target)) {
+                throw new \Exception("Cannot create file $target.\n".$out);
+            }
+            if($hasErrors) {
+                echo "File created, but there was warnings: ",$out;
+            }
+        }
+        else {
+            if(!class_exists('\ZipArchive')) {
+                throw new \Exception("ZipArchive class required but not exists.");
+            }
+            if(!is_dir($source)) {
+                throw new \Exception("Wrong source");
+            }
+
+            $zip = new \ZipArchive();
+            if ($zip->open($target, \ZipArchive::CREATE) !== true) {
+                throw new \Exception("Cannot create file $target");
+            }
+
+            $source = realpath($source);
+            $prefix = $source.'/';
+            $prefixLen = mb_strlen($prefix);
+            $files =
+                new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator($source, \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::UNIX_PATHS),
+                \RecursiveIteratorIterator::SELF_FIRST);
+            foreach($files as $file) {
+                $basename = $file->getBasename();
+                $pathname = $file->getPathname();
+                $pathname1 = mb_substr($pathname, 0, $prefixLen);
+                $pathname2 = mb_substr($pathname, $prefixLen);
+                if($pathname1 != $prefix) {
+                    throw new \Exception('Zip error: assert prefix');
+                }
+                $ignored = false;
+                foreach($this->zipIgnore as $pattern) {
+                    if(fnmatch($pattern, $basename)) {
+                        $ignored = true;
+                        break;
+                    }
+                }
+                if($ignored) {
+                    continue;
+                }
+
+                if($file->isDir()) {
+                    if(!$zip->addEmptyDir($pathname2)) {
+                        throw new \Exception("Zip error: addEmptyDir");
+                    }
+                }
+                else {
+                    if(!$zip->addFile($file->getRealPath(), $pathname2)) {
+                        throw new \Exception("Zip error: addFile");
+                    }
+                }
+            }
+            if(!$zip->close()) {
+                throw new \Exception("Zip error: close");
+            }
         }
     }
 
@@ -633,6 +690,10 @@ class Spm
         $packages = array();
         foreach($paths as $path) {
             if($path) {
+                $abspath = realpath($this->cwd.'/'.$path);
+                if($abspath && realpath($path) != $abspath) {
+                    $path = $abspath;
+                }
                 if(is_dir($path)) {
                     $packs = self::searchPackages(rtrim($path, '/'));
                     foreach($packs as $key => $pack) {
