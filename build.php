@@ -5,11 +5,19 @@
  */
 
 $dist  = __DIR__.'/dist';
+if(!file_exists(__DIR__.'/vendor/autoload.php')) {
+    echo "You must run 'composer install'\n";
+    exit(1);
+}
 if(!file_exists($dist)) {
     mkdir($dist, 0755);
 }
 if(file_exists($dist.'/spm.phar')) {
-    unlink($dist.'/spm.phar');
+    echo "Clearing..\n";
+    if(!unlink($dist.'/spm.phar')) {
+        echo "Cannot clear {$dist}/spm.phar\n";
+        exit(1);
+    }
 }
 $phar = new Phar($dist.'/spm.phar', FilesystemIterator::CURRENT_AS_FILEINFO | FilesystemIterator::KEY_AS_FILENAME, 'spm.phar');
 $phar->buildFromDirectory(__DIR__.'/src');
@@ -31,4 +39,9 @@ include "phar://".__FILE__."/cli.php";
 __HALT_COMPILER();
 ?>
 ');
+if(!file_exists($dist.'/spm.phar')) {
+    echo "File {$dist}/spm.phar does not created\n";
+    exit(1);
+}
 chmod($dist.'/spm.phar', 0755);
+echo "Now you can use {$dist}/spm.phar\n";
