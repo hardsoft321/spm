@@ -1,5 +1,5 @@
 Usage:
-    spm help
+    spm help [<commands>]
     spm version
     spm list [<pattern>]
     spm install <id_name>[-<version>]
@@ -18,8 +18,9 @@ Usage:
     spm md5-generate [<filename>]
     spm md5-compare <file1> [<file2>]
 
-spm help
+spm help [<command>]
     Display this help. Can be executed outside of the SugarCRM.
+    You can specify commands to filter output.
 
 spm version
     Display version. Can be executed outside of the SugarCRM.
@@ -42,6 +43,9 @@ spm install <id_name>[-<version>]
     automatically extracted if only zip file was uploaded.
     Options:
         --no-copy - do not execute install procedure; just run pre_install and post_install scripts
+            Warning: if you install a package with --no-copy option it is dangerous to uninstall
+            the package without --no-copy option because the restore files do not created
+            and necessary files can be deleted.
         --lock-file=<file> - file used to lock installation/uninstallation, .spm.lock, by default
         --log-file=<file> - file used to log installation/uninstallation, spm.log, by default
 
@@ -96,7 +100,7 @@ spm file <file1> [<file2> ...]
         --spm-path=<path> - search package sources on <path> in sync command
 
 spm pack-create
-    Run interactive dialogue and then create folder with simple package structure.
+    Run interactive dialogue and then create simple package structure.
     Can be executed outside of the SugarCRM.
 
 spm zip <id_name>[-<version>]
@@ -153,4 +157,3 @@ spm md5-compare <file1> [<file2>]
     Compare arrays with md5 checksums. Files must contains checksums in format
     like in Diagnostic Tool (MD5 Calculated array) or like in file files.md5.
     If file2 not specified, current checksums array will be generated and used.
-

@@ -23,6 +23,7 @@ It is intended to deal with package sources, not with any repository like packag
 
 ## Requirements
 
+* php >= 5.3.0
 * Linux
 * SugarCRM/SuiteCRM
 * zip php extension
@@ -37,7 +38,7 @@ File `dist/spm.phar` will appear.
 ## Usage
 
 Under your path create a link `spm` to `dist/spm.phar`.
-Run `spm help` to see manual.
+Run `spm help` to see [manual](blob/master/src/Spm/Cmd/README.txt).
 
 For many commands current directory must be inside of the SugarCRM directory.
 
