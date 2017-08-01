@@ -1575,6 +1575,25 @@ timestamp: ".date("Y-m-d H:i:s")."
             $file2 = 'current';
         }
 
+        $key = key($md5_array1);
+        if(!empty($key) && substr($key, 0, 2) == './') {
+            $md5_array1_ = array();
+            foreach($md5_array1 as $path => $md5) {
+                $newPath = substr($path, 0, 2) == './' ? substr($path, 2) : $path;
+                $md5_array1_[$newPath] = $md5;
+            }
+            $md5_array1 = $md5_array1_;
+        }
+        $key = key($md5_array2);
+        if(!empty($key) && substr($key, 0, 2) == './') {
+            $md5_array2_ = array();
+            foreach($md5_array2 as $path => $md5) {
+                $newPath = substr($path, 0, 2) == './' ? substr($path, 2) : $path;
+                $md5_array2_[$newPath] = $md5;
+            }
+            $md5_array2 = $md5_array2_;
+        }
+
         $diff = array_diff(array_keys($md5_array2), array_keys($md5_array1));
         if($diff) {
             echo "New files (in $file2, but not in $file1):\n";

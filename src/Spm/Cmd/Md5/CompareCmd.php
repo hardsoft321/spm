@@ -9,7 +9,9 @@ use Spm\Cmd\Base;
 
 class CompareCmd extends Base
 {
-    public function execute()
+    protected $files;
+
+    public function executeNonSugar()
     {
         list($files, $options) = self::getArgvParams(false, array());
         if(count($files) > 2) {
@@ -20,14 +22,22 @@ class CompareCmd extends Base
         if(empty($files)) {
             throw new \Exception("At least one file must be specified");
         }
-        $sugarDir = getcwd();
-        chdir($this->spm->cwd);
         foreach($files as $key => $file) {
             if(!($files[$key] = realpath($file))) {
                 throw new \Exception("File {$file} not exists.");
             }
         }
-        chdir($sugarDir);
-        $this->spm->md5Compare($files[0], isset($files[1]) ? $files[1] : null);
+        if(isset($files[1])) {
+            $this->spm->md5Compare($files[0], $files[1]);
+        }
+        $this->files = $files;
+    }
+
+    public function execute()
+    {
+        if(isset($this->files[1])) {
+            return;
+        }
+        $this->spm->md5Compare($this->files[0], null);
     }
 }

@@ -37,7 +37,7 @@ if(!method_exists($cmd, 'execute')) {
     exit;
 }
 if(!\Spm\Spm::enterSugar()) {
-    echo "SugarCRM root not found.\n";
+    echo "SugarCRM root dir not found.\n";
     exit(4);
 }
 

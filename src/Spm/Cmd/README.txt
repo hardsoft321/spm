@@ -156,4 +156,5 @@ spm md5-generate [<filename>]
 spm md5-compare <file1> [<file2>]
     Compare arrays with md5 checksums. Files must contains checksums in format
     like in Diagnostic Tool (MD5 Calculated array) or like in file files.md5.
-    If file2 not specified, current checksums array will be generated and used.
+    If file2 not specified, current checksums will be used.
+    For example, `spm md5-compare files.md5`.
