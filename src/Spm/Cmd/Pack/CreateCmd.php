@@ -19,7 +19,7 @@ class CreateCmd extends Base
         $id_name = ($s = trim(fgets(STDIN))) ? $s : $defaultName;
 
         $defaultAuthor = file_exists($spm_home_dir.'/last_author')
-            ? file_get_contents($spm_home_dir.'/last_author') : get_current_user();
+            ? file_get_contents($spm_home_dir.'/last_author') : $this->spm->getRunningUser();
         echo "Input author name [$defaultAuthor]: ";
         $author = ($s = trim(fgets(STDIN))) ? $s : $defaultAuthor;
 
