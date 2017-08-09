@@ -39,6 +39,7 @@ if(!method_exists($cmd, 'execute')) {
 
 try {
     $login = $cmd->getUserLogin();
+    $cmd->setErrorReporting();
 }
 catch (Exception $e) {
     echo $e->getMessage(),"\n";

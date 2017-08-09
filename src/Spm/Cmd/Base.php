@@ -12,6 +12,7 @@ class Base
 
     public static $GLOBAL_OPTIONS = array(
         'login:',
+        'error-reporting:',
     );
 
     public function __construct()
@@ -36,6 +37,18 @@ class Base
     {
         list($packages, $options) = self::getArgvParams(false, self::$GLOBAL_OPTIONS, true);
         return !empty($options['login']) && is_string($options['login']) ? $options['login'] : null;
+    }
+
+    public function setErrorReporting()
+    {
+        list($packages, $options) = self::getArgvParams(false, self::$GLOBAL_OPTIONS, true);
+        if(!isset($options['error-reporting'])) {
+            return;
+        }
+        if(!is_numeric($options['error-reporting'])) {
+            throw new \Exception("Option --error-reporting must be numeric");
+        }
+        error_reporting((int)$options['error-reporting']);
     }
 
     protected function getArgvParams($subjectCount, $allowedOptions, $skipUnknown = false)

@@ -21,6 +21,8 @@ Usage:
 Global options:
     --login=<user_name> - set current_user to user with this user_name.
             `spm repair`, `spm install` require admin user.
+    --error-reporting=<level> - set error_reporting level.
+        For example, --error-reporting=22519, which equals to E_ALL & ~E_NOTICE & ~E_STRICT & ~E_DEPRECATED
 
 spm help [<command>]
     Display this help. Can be executed outside of the SugarCRM.
