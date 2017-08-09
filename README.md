@@ -38,7 +38,7 @@ File `dist/spm.phar` will appear.
 ## Usage
 
 Under your path create a link `spm` to `dist/spm.phar`.
-Run `spm help` to see [manual](blob/master/src/Spm/Cmd/README.txt).
+Run `spm help` to see [manual](src/Spm/Cmd/README.txt).
 
 For many commands current directory must be inside of the SugarCRM directory.
 
