@@ -27,6 +27,7 @@ class Spm
      */
     public $cwd;
 
+    public static $login;
     public $spmPath;
     public $sandboxFile = '.spmsandbox';
     public $lockFile = '.spm.lock';
@@ -333,6 +334,8 @@ class Spm
             $this->logFile = $options['log-file'];
         }
 
+        $this->checkIsAdmin(); // modules/Administration/upgrade_custom_relationships.php, modules/Administration/QuickRepairAndRebuild.php requires admin
+        echo "Logined as '".self::$login."'\n";
         self::createLock("install $id_name-$version");
         echo "Installing package {$pack['id_name']} {$pack['version']} file $file_to_install ...\n";
         $sugarcrmLogFile = $GLOBALS['sugar_config']['logger']['file']['name'].$GLOBALS['sugar_config']['logger']['file']['ext'];
@@ -342,7 +345,9 @@ class Spm
         $_REQUEST['install_file'] = $file_to_install;
         $pm->options = $options;
         $pm->performInstall($file_to_install);
-        $this->log("install   {$pack['id_name']}-{$pack['version']} ".implode(',', array_keys($options)));
+        $this->log("install   {$pack['id_name']}-{$pack['version']} ".implode(',', array_map(function($o, $v) {
+            return is_string($v) ? "$o=$v" : $o;
+        }, array_keys($options), $options)));
         if(md5_file($sugarcrmLogFile) != $md5) {
             echo "sugarcrm.log was modified; logger.level = {$GLOBALS['sugar_config']['logger']['level']}.\n";
         }
@@ -416,7 +421,9 @@ class Spm
         $pm->options = $options;
         $pm->performUninstall($id_name, $version);
         echo "\n";
-        $this->log("uninstall {$id_name}-{$version} ".implode(',', array_keys($options)));
+        $this->log("uninstall {$id_name}-{$version} ".implode(',', array_map(function($o, $v) {
+            return is_string($v) ? "$o=$v" : $o;
+        }, array_keys($options), $options)));
         if(md5_file($sugarcrmLogFile) != $md5) {
             echo "sugarcrm.log was modified; logger.level = {$GLOBALS['sugar_config']['logger']['level']}.\n";
         }
@@ -938,6 +945,7 @@ class Spm
 
     public function repair($options = array())
     {
+        $this->checkIsAdmin(); // module/Administration/repairDatabase.php requires admin
         $randc = new Sugar\RepairAndClear();
         $show_output = !empty($options['v']);
         if($show_output) {
@@ -1062,11 +1070,19 @@ timestamp: ".date("Y-m-d H:i:s")."
         }
     }
 
+    public function checkIsAdmin()
+    {
+        global $current_user;
+        if($current_user->is_admin != 1) {
+            throw new \Exception("Current user '{$current_user->user_name}' is not admin. Use 'login' option.\n");
+        }
+    }
+
     /**
      * https://github.com/fayebsg/sugarcrm-cli.git
      *  + pea
      */
-    public static function enterSugar()
+    public static function enterSugar($login = null)
     {
         global $sugar_config;
         if(!self::chdirToSugarRoot()) {
@@ -1100,7 +1116,18 @@ timestamp: ".date("Y-m-d H:i:s")."
 
         global $current_user;
         $current_user = new \User();
-        $current_user->getSystemUser();
+        if(!empty($login)) {
+            $current_user->retrieve_by_string_fields(array(
+                'user_name' => $login,
+            ));
+        }
+        else {
+            $current_user->getSystemUser();
+        }
+        if(empty($current_user->id)) {
+            fwrite(STDERR, "Warning: User not found.\n");
+        }
+        self::$login = $current_user->user_name;
 
         if (\UploadStream::getSuhosinStatus() == false) {
             echo "Warning: ",htmlspecialchars_decode($GLOBALS['app_strings']['ERR_SUHOSIN']),"\n";
@@ -1443,8 +1470,9 @@ timestamp: ".date("Y-m-d H:i:s")."
             }
         }
 
-        $installOptionsString = Cmd\Base::optionsToString(Cmd\InstallCmd::$ALLOWED_OPTIONS, $options);
-        $uninstallOptionsString = Cmd\Base::optionsToString(Cmd\UninstallCmd::$ALLOWED_OPTIONS, $options);
+        $this->checkIsAdmin(); // `spm install` requires admin
+        $installOptionsString = Cmd\Base::optionsToString(array_merge(Cmd\Base::$GLOBAL_OPTIONS, Cmd\InstallCmd::$ALLOWED_OPTIONS), $options);
+        $uninstallOptionsString = Cmd\Base::optionsToString(array_merge(Cmd\Base::$GLOBAL_OPTIONS, Cmd\UninstallCmd::$ALLOWED_OPTIONS), $options);
         foreach($statusData['sandboxNotInstalled'] as $pack) {
             if($this->hasLock()) {
                 throw new \Exception("Probably other installation in progress or exited with error. See {$this->lockFile} file.");

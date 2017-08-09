@@ -10,6 +10,10 @@ class Base
 {
     protected $spm;
 
+    public static $GLOBAL_OPTIONS = array(
+        'login:',
+    );
+
     public function __construct()
     {
         $this->spm = new \Spm\Spm();
@@ -28,11 +32,18 @@ class Base
         return null;
     }
 
-    protected function getArgvParams($subjectCount, $allowedOptions)
+    public function getUserLogin()
+    {
+        list($packages, $options) = self::getArgvParams(false, self::$GLOBAL_OPTIONS, true);
+        return !empty($options['login']) && is_string($options['login']) ? $options['login'] : null;
+    }
+
+    protected function getArgvParams($subjectCount, $allowedOptions, $skipUnknown = false)
     {
         global $argv;
         $options = array();
         $subjects = array();
+        $allowedOptions = array_merge($allowedOptions, self::$GLOBAL_OPTIONS);
         for($i = 2; $i < count($argv); $i++) {
             if($argv[$i][0] == '-') {
                 $optPair = explode("=", ltrim($argv[$i], '-'));
@@ -46,7 +57,7 @@ class Base
                 elseif(in_array($name, $allowedOptions)) {
                     $options[$name] = true;
                 }
-                else {
+                elseif(!$skipUnknown) {
                     throw new \Exception("Unknown option {$argv[$i]}");
                 }
             }

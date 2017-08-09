@@ -36,7 +36,16 @@ if(method_exists($cmd, 'executeNonSugar')) {
 if(!method_exists($cmd, 'execute')) {
     exit;
 }
-if(!\Spm\Spm::enterSugar()) {
+
+try {
+    $login = $cmd->getUserLogin();
+}
+catch (Exception $e) {
+    echo $e->getMessage(),"\n";
+    exit(5);
+}
+
+if(!\Spm\Spm::enterSugar($login)) {
     echo "SugarCRM root dir not found.\n";
     exit(4);
 }

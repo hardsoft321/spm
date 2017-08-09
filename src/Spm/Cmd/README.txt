@@ -18,6 +18,10 @@ Usage:
     spm md5-generate [<filename>]
     spm md5-compare <file1> [<file2>]
 
+Global options:
+    --login=<user_name> - set current_user to user with this user_name.
+            `spm repair`, `spm install` require admin user.
+
 spm help [<command>]
     Display this help. Can be executed outside of the SugarCRM.
     You can specify commands to filter output.
