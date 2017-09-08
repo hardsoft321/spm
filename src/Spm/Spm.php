@@ -978,6 +978,9 @@ class Spm
     public function dbquery($sql, $allowedQueries = null, $options = array())
     {
         global $db;
+        if(strpos($sql, '/* Warning:') !== false) {
+            echo $sql;
+        }
         $sql = str_replace(
             array(
                 "\n",
@@ -1074,7 +1077,7 @@ timestamp: ".date("Y-m-d H:i:s")."
     {
         global $current_user;
         if($current_user->is_admin != 1) {
-            throw new \Exception("Current user '{$current_user->user_name}' is not admin. Use 'login' option.\n");
+            throw new \Exception("/* Warning: current user '{$current_user->user_name}' is not admin. Use 'login' option. */\n");
         }
     }
 
