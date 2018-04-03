@@ -25,7 +25,7 @@ It is intended to deal with package sources, not with any repository like packag
 
 * php >= 5.3.0
 * Linux
-* SugarCRM/SuiteCRM
+* SugarCRM CE/SuiteCRM
 * zip php extension
 
 ## Build

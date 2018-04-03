@@ -1024,10 +1024,18 @@ class Spm
                 if(!$res || $error) {
                     throw new \Exception("Error executing sql query");
                 }
+                if(is_bool($res)) {
+                    continue;
+                }
                 $head = $db->getFieldsArray($res);
                 if(!empty($head)) {
+                    $c = 0;
                     while($row = $db->fetchByAssoc($res, false)) {
                         print_r($row);
+                        $c++;
+                    }
+                    if($c > 0) {
+                        echo "Total: $c\n";
                     }
                 }
                 echo "Done\n";

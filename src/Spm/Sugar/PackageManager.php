@@ -177,7 +177,7 @@ class PackageManager extends \PackageManager
         }//fi
     }
 
-    function performUninstall($name, $version){
+    function performUninstall($name, $version = ''){
         $uh = new UpgradeHistory();
         $uh->name = $name;
         $uh->id_name = $name;
