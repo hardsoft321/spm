@@ -210,7 +210,7 @@ class Spm
         if(empty($md5) && file_exists('files.md5'))
         {
             include('files.md5');
-            $md5 = $md5_string;
+            $md5 = !empty($md5_string) ? $md5_string : $md5_string_calculated;
         }
         if(isset($md5['./' . $file])) {
             $fileInfo['original'] = array(
@@ -1557,22 +1557,71 @@ timestamp: ".date("Y-m-d H:i:s")."
         }
 
         $gitIgnoreFiles = array();
-        $descriptorspec = array(
-            0 => array("pipe", "r"),
-            1 => array("pipe", "w"),
-        );
-        $gitIgnoreProc = proc_open('git check-ignore --stdin', $descriptorspec, $pipes);
-        if (is_resource($gitIgnoreProc)) {
-            foreach($md5arrFiltered as $filename => $md5) {
-                fwrite($pipes[0], $filename);
-                fwrite($pipes[0], PHP_EOL);
+        $gitCheckIgnoreMode = getenv('SPM_GIT_CHECK_IGNORE');
+        if ($gitCheckIgnoreMode === 'skip') {
+        }
+        elseif (empty($gitCheckIgnoreMode) || $gitCheckIgnoreMode === 'non-blocking') {
+            $descriptorspec = array(
+                0 => array("pipe", "r"),
+                1 => array("pipe", "w"),
+            );
+            $gitIgnoreProc = proc_open('git check-ignore --stdin -z', $descriptorspec, $pipes);
+            if (is_resource($gitIgnoreProc)) {
+                stream_set_blocking($pipes[0], true);
+                stream_set_blocking($pipes[1], false);
+                reset($md5arrFiltered);
+                $buffer = "";
+                $closed0 = false;
+                while (!feof($pipes[1])) {
+                    if (!$closed0) {
+                        $filename = key($md5arrFiltered);
+                        fwrite($pipes[0], $filename);
+                        fwrite($pipes[0], "\0");
+                        if (next($md5arrFiltered) === false) {
+                            fclose($pipes[0]);
+                            $closed0 = true;
+                        }
+                    }
+                    $line = fgets($pipes[1]);
+                    $buffer .= $line;
+                    //TODO: process by small portions not with one big buffer
+                }
+                if (!$closed0) {
+                    fclose($pipes[0]);
+                }
+                fclose($pipes[1]);
+                proc_close($gitIgnoreProc);
+                $lines = explode("\0", $buffer);
+                foreach ($lines as $line) {
+                    $line = trim($line);
+                    if (empty($line)) {
+                        continue;
+                    }
+                    $gitIgnoreFiles[$line] = 1;
+                }
             }
-            fclose($pipes[0]);
-            while($line = fgets($pipes[1])) {
-                $gitIgnoreFiles[trim($line)] = 1;
+        }
+        elseif ($gitCheckIgnoreMode === 'blocking') {
+            $descriptorspec = array(
+                0 => array("pipe", "r"),
+                1 => array("pipe", "w"),
+            );
+            $gitIgnoreProc = proc_open('git check-ignore --stdin', $descriptorspec, $pipes);
+            if (is_resource($gitIgnoreProc)) {
+                foreach($md5arrFiltered as $filename => $md5) {
+                    fwrite($pipes[0], $filename);
+                    fwrite($pipes[0], PHP_EOL);
+                }
+                fclose($pipes[0]);
+                while($line = fgets($pipes[1])) {
+                    $gitIgnoreFiles[trim($line)] = 1;
+                }
+                fclose($pipes[1]);
+                proc_close($gitIgnoreProc);
             }
-            fclose($pipes[1]);
-            proc_close($gitIgnoreProc);
+        }
+        else {
+            throw new \Exception("SPM_GIT_CHECK_IGNORE has unknown value");
         }
 
         return array_diff_key($md5arrFiltered, $gitIgnoreFiles);
