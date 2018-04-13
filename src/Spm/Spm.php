@@ -1490,18 +1490,48 @@ timestamp: ".date("Y-m-d H:i:s")."
             }
             if(empty($options['no-uninstall'])) {
                 while($this->isInstalled($pack['id'])) {
-                    echo shell_exec('/usr/bin/env php '.SPM_ENTRY_POINT.' uninstall '.$pack['id'].' '.$uninstallOptionsString);
+                    $cmd = '/usr/bin/env php '.SPM_ENTRY_POINT.' uninstall '.$pack['id'].' '.$uninstallOptionsString;
+                    exec($cmd, $output, $return_var);
+                    foreach ($output as $line) {
+                        echo $line, PHP_EOL;
+                    }
+                    if ($return_var) {
+                        throw new \Exception("Non zero return code");
+                    }
                 }
             }
-            echo shell_exec('/usr/bin/env php '.SPM_ENTRY_POINT.' install '.$pack['id'].'-'.$pack['version'].' '.$installOptionsString); //exec new process to avoid redeclare errors (post_install, etc.)
+            //exec new process to avoid redeclare errors (post_install, etc.)
+            $cmd = '/usr/bin/env php '.SPM_ENTRY_POINT.' install '.$pack['id'].'-'.$pack['version'].' '.$installOptionsString;
+            exec($cmd, $output, $return_var);
+            foreach ($output as $line) {
+                echo $line, PHP_EOL;
+            }
+            if ($return_var) {
+                throw new \Exception("Non zero return code");
+            }
         }
 
         foreach($statusData['needReinstall'] as $pack) {
             if($this->hasLock()) {
                 throw new \Exception("Probably other installation in progress or exited with error. See {$this->lockFile} file.");
             }
-            echo shell_exec('/usr/bin/env php '.SPM_ENTRY_POINT.' uninstall '.$pack['id'].'-'.$pack['version'].' '.$uninstallOptionsString);
-            echo shell_exec('/usr/bin/env php '.SPM_ENTRY_POINT.' install '.$pack['id'].'-'.$pack['version'].' '.$installOptionsString);
+            $cmd = '/usr/bin/env php '.SPM_ENTRY_POINT.' uninstall '.$pack['id'].'-'.$pack['version'].' '.$uninstallOptionsString;
+            exec($cmd, $output, $return_var);
+            foreach ($output as $line) {
+                echo $line, PHP_EOL;
+            }
+            if ($return_var) {
+                throw new \Exception("Non zero return code");
+            }
+
+            $cmd = '/usr/bin/env php '.SPM_ENTRY_POINT.' install '.$pack['id'].'-'.$pack['version'].' '.$installOptionsString;
+            exec($cmd, $output, $return_var);
+            foreach ($output as $line) {
+                echo $line, PHP_EOL;
+            }
+            if ($return_var) {
+                throw new \Exception("Non zero return code");
+            }
         }
     }
 
