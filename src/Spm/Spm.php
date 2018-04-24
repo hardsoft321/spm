@@ -119,7 +119,7 @@ class Spm
 
     public function listAvailable($keyword = null, $options = array())
     {
-        $packages = $this->getAvailablePackages()->getPackages();
+        $packages = $this->getAvailablePackages($options)->getPackages();
         if(!empty($keyword)) {
             $packages = array_filter($packages, function ($pack) use ($keyword) {
                 return stripos($pack['id_name'], $keyword) !== false;
@@ -354,7 +354,7 @@ class Spm
         self::releaseLock();
     }
 
-    public function isUploaded($id_name, $version)
+    public function isUploaded($id_name, $version = null)
     {
         $packages = $this->getPackagesInStaging()->lookup($id_name, $version);
         return !empty($packages);
@@ -452,7 +452,7 @@ class Spm
 
     public function upload($id_name, $version = null, $options = array())
     {
-        $packages = $this->getAvailablePackages()->lookup($id_name, $version, 'desc');
+        $packages = $this->getAvailablePackages($options)->lookup($id_name, $version, 'desc');
         if(empty($packages)) {
             throw new \Exception("Package $id_name $version not found (spm_path = {$this->spmPath}).");
         }
@@ -515,7 +515,7 @@ class Spm
 
     public function zip($id_name, $version = null, $options = array())
     {
-        $packages = $this->getAvailablePackages()->lookup($id_name, $version, 'desc');
+        $packages = $this->getAvailablePackages($options)->lookup($id_name, $version, 'desc');
         if(empty($packages)) {
             throw new \Exception("Package $id_name $version not found (spm_path = {$this->spmPath}).");
         }
@@ -677,9 +677,11 @@ class Spm
         }
     }
 
-    public function getAvailablePackages()
+    public function getAvailablePackages($options = null)
     {
-        if(!$this->packagesAvailable) {
+        $spmPath = !empty($options['spm-path']) ? $options['spm-path'] : getenv('SPM_PATH');
+        if(!$this->packagesAvailable || $this->spmPath != $spmPath) {
+            $this->spmPath = $spmPath;
             $this->updateAvailable();
         }
         return $this->packagesAvailable;
@@ -687,9 +689,6 @@ class Spm
 
     public function updateAvailable()
     {
-        if(empty($this->spmPath)) {
-            $this->spmPath = getenv('SPM_PATH');
-        }
         if(empty($this->spmPath)) {
             echo "No SPM_PATH defined. You may define environment variable SPM_PATH or option --spm-path=<path>.\n";
         }
@@ -717,13 +716,13 @@ class Spm
         $this->packagesAvailable->sort();
     }
 
-    public function searchFileInAvailable($file)
+    public function searchFileInAvailable($file, $options = array())
     {
         $files = array();
         $fileInfo = $this->getFileInfo($file);
         if(!empty($fileInfo['packages'])) {
             foreach($fileInfo['packages'] as $info) {
-                $packages = $this->getAvailablePackages()->lookup($info['package_id_name'], null, 'desc');
+                $packages = $this->getAvailablePackages($options)->lookup($info['package_id_name'], null, 'desc');
                 foreach($packages as $packRow) {
                     $f = realpath($packRow['filename'].'/'.$info['filename_from']);
                     if(file_exists($f)) {
@@ -1532,6 +1531,54 @@ timestamp: ".date("Y-m-d H:i:s")."
             if ($return_var) {
                 throw new \Exception("Non zero return code");
             }
+        }
+    }
+
+    public function reinstall($id_name, $version, $options = array())
+    {
+        $this->checkIsAdmin(); // `spm install` requires admin
+        $installOptionsString = Cmd\Base::optionsToString(array_merge(
+            Cmd\Base::$GLOBAL_OPTIONS, Cmd\InstallCmd::$ALLOWED_OPTIONS), $options);
+        $uninstallOptionsString = Cmd\Base::optionsToString(array_merge(
+            Cmd\Base::$GLOBAL_OPTIONS, Cmd\UninstallCmd::$ALLOWED_OPTIONS), $options);
+
+        $id_version = $id_name.(!empty($version) ? '-'.$version : '');
+        if (!empty($version)) {
+            $cmd = '/usr/bin/env php '.SPM_ENTRY_POINT.' uninstall '.$id_version.' '.$uninstallOptionsString;
+            exec($cmd, $output, $return_var);
+            foreach ($output as $line) {
+                echo $line, PHP_EOL;
+            }
+            if ($return_var) {
+                throw new \Exception("Non zero return code");
+            }
+        }
+        else {
+            while($this->isInstalled($id_name)) {
+                $cmd = '/usr/bin/env php '.SPM_ENTRY_POINT.' uninstall '.$id_name.' '.$uninstallOptionsString;
+                exec($cmd, $output, $return_var);
+                foreach ($output as $line) {
+                    echo $line, PHP_EOL;
+                }
+                if ($return_var) {
+                    throw new \Exception("Non zero return code");
+                }
+            }
+        }
+
+        if($this->isUploaded($id_name)) {
+            $this->remove($id_name);
+        }
+
+        $this->upload($id_name, $version, $options);
+
+        $cmd = '/usr/bin/env php '.SPM_ENTRY_POINT.' install '.$id_version.' '.$installOptionsString;
+        exec($cmd, $output, $return_var);
+        foreach ($output as $line) {
+            echo $line, PHP_EOL;
+        }
+        if ($return_var) {
+            throw new \Exception("Non zero return code");
         }
     }
 

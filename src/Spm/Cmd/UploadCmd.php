@@ -7,13 +7,15 @@ namespace Spm\Cmd;
 
 class UploadCmd extends Base
 {
+    public static $ALLOWED_OPTIONS = array(
+        'no-php-check',
+        'spm-path:',
+    );
+
     public function execute()
     {
-        list($packages, $options) = self::getArgvParams(1, array('no-php-check', 'spm-path:'));
+        list($packages, $options) = self::getArgvParams(1, self::$ALLOWED_OPTIONS);
         list($id_name, $version) = self::parsePackageName(reset($packages));
-        if(!empty($options['spm-path'])) {
-            $this->spm->spmPath = $options['spm-path'];
-        }
         $this->spm->upload($id_name, $version, $options);
     }
 }

@@ -15,9 +15,6 @@ class ListCmd extends Base
         }
         if(!empty($options['a'])) {
             echo "Available:\n";
-            if(!empty($options['spm-path'])) {
-                $this->spm->spmPath = $options['spm-path'];
-            }
             $this->spm->listAvailable(empty($keywords) ? null : reset($keywords), $options);
         }
     }

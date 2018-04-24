@@ -40,15 +40,12 @@ class FileCmd extends Base
 
         if(!empty($options['sync'])) {
             $syncedFiles = array();
-            if(!empty($options['spm-path'])) {
-                $this->spm->spmPath = $options['spm-path'];
-            }
             $realFiles = array_unique($realFiles);
             foreach($realFiles as $file) {
                 $path = ltrim(substr($file, strlen(getcwd())), '/');
                 $md5 = md5_file($path);
                 echo "\n{$path}:\n";
-                $variants = $this->spm->searchFileInAvailable($path);
+                $variants = $this->spm->searchFileInAvailable($path, $options);
                 $variants = array_values($variants);
                 if(!empty($variants)) {
                     $quit = false;

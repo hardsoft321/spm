@@ -11,9 +11,6 @@ class ZipCmd extends Base
     {
         list($packages, $options) = self::getArgvParams(1, array('no-php-check', 'spm-path:'));
         list($id_name, $version) = self::parsePackageName(reset($packages));
-        if(!empty($options['spm-path'])) {
-            $this->spm->spmPath = $options['spm-path'];
-        }
         $this->spm->zip($id_name, $version, $options);
     }
 }

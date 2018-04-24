@@ -7,9 +7,11 @@ namespace Spm\Cmd;
 
 class RemoveCmd extends Base
 {
+    public static $ALLOWED_OPTIONS = array();
+
     public function execute()
     {
-        list($packages, $options) = self::getArgvParams(1, array());
+        list($packages, $options) = self::getArgvParams(1, self::$ALLOWED_OPTIONS);
         list($id_name, $version) = self::parsePackageName(reset($packages));
         $this->spm->remove($id_name, $version);
     }

@@ -6,6 +6,7 @@ Usage:
     spm uninstall <id_name>[-<version>]
     spm upload <id_name>[-<version>]
     spm remove <id_name>[-<version>]
+    spm reinstall <id_name>[-<version>]
     spm repair
     spm dbquery [<sql>]
     spm check
@@ -78,6 +79,9 @@ spm upload <id_name>[-<version>]
 
 spm remove <id_name>[-<version>]
     Remove package files from upload directory.
+
+spm reinstall <id_name>[-<version>]
+    Uninstall (if package installed), remove, upload and install package. See respective commands options.
 
 spm repair
     Run Quick Repair and Rebuild. Show SQL-queries if differences found between database and vardefs.
