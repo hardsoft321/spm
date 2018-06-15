@@ -1245,6 +1245,9 @@ timestamp: ".date("Y-m-d H:i:s")."
 
     public function sandboxStatus($options = array())
     {
+        if($this->hasLock()) {
+            echo "\nWarning: Probably other installation in progress or exited with error. See {$this->lockFile} file.\n\n";
+        }
         $statusData = $this->getSandboxStatusData($options);
         if(!empty($statusData['incorrectEnvironments'])) {
             echo "Warning: unknown environments - ".implode(' ', $statusData['incorrectEnvironments'])."\n";
