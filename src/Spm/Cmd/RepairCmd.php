@@ -7,9 +7,15 @@ namespace Spm\Cmd;
 
 class RepairCmd extends Base
 {
+    public static $ALLOWED_OPTIONS = array(
+        'v',
+        'actions:',
+        'modules:',
+    );
+
     public function execute()
     {
-        list($subjects, $options) = self::getArgvParams(false, array('v'));
+        list($subjects, $options) = self::getArgvParams(false, self::$ALLOWED_OPTIONS);
         $this->spm->repair($options);
     }
 }

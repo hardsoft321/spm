@@ -951,7 +951,9 @@ class Spm
             ob_start();
             $randc->oneLine = false;
         }
-        $randc->repairAndClearAll(array('clearAll'),array(translate('LBL_ALL_MODULES')), false, $show_output);
+        $actions = !empty($options['actions']) ? explode(',', $options['actions']) : array('clearAll');
+        $modules = !empty($options['modules']) ? explode(',', $options['modules']) : array(translate('LBL_ALL_MODULES'));
+        $randc->repairAndClearAll($actions, $modules, false, $show_output);
         if($show_output) {
             echo "\n";
             ob_flush();

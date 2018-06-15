@@ -85,8 +85,13 @@ spm reinstall <id_name>[-<version>]
 
 spm repair
     Run Quick Repair and Rebuild. Show SQL-queries if differences found between database and vardefs.
+    Use options `actions` and `modules` only for limited (fast) repair.
     Options:
         -v - show output
+        --actions=<actions> - comma-separated list of actions to run. Default - clearAll.
+            Available (modules/Administration/QuickRepairAndRebuild.php):
+                repairDatabase,rebuildExtensions,clearTpls,clearJsFiles,clearDashlets,clearSugarFeedCache,clearThemeCache,clearVardefs,clearJsLangFiles,rebuildAuditTables,clearSearchCache,clearAll
+        --modules=<modules> - comma-separated list of modules to repair. Default - all modules.
 
 spm dbquery [<sql>]
     Run SQL-query on SugarCRM database. If sql not specified, standard input will be read.

@@ -46,28 +46,80 @@ class RepairAndClear extends \RepairAndClear
     public function repairDatabase()
     {
         global $dictionary, $mod_strings;
+
+        if(isset($mod_strings['LBL_ALL_MODULES']) && !in_array($mod_strings['LBL_ALL_MODULES'], $this->module_list)) {
+            $this->repairDatabaseSelectModules();
+        }
         $_REQUEST['repair_silent']=1;
         $_REQUEST['execute']=$this->execute;
         $GLOBALS['reload_vardefs'] = true;
         $hideModuleMenu = true;
         include_once('modules/Administration/repairDatabase.php');
         if(!empty($sql)) {
-            $qry_str = "";
-            foreach (explode("\n", $sql) as $line) {
-                if($this->oneLine) {
-                    if (!empty ($line) && substr($line, -2) != "*/") {
-                        $qry_str .= $line.";";
-                    }
+            $this->sql = $this->removeComments($sql);
+        }
+    }
+
+    public function removeComments($sql) {
+        $qry_str = "";
+        foreach (explode("\n", $sql) as $line) {
+            if ($this->oneLine) {
+                if (!empty($line) && substr($line, -2) != "*/") {
+                    $qry_str .= $line . ";";
                 }
-                else {
-                    $qry_str .= $line;
-                    if (!empty ($line) && substr($line, -2) != "*/") {
-                        $qry_str .= ";";
+            } else {
+                $qry_str .= $line;
+                if (!empty($line) && substr($line, -2) != "*/") {
+                    $qry_str .= ";";
+                }
+                $qry_str .= "\n";
+            }
+        }
+        return $qry_str;
+    }
+
+    public function repairDatabaseSelectModules()
+    {
+        global $mod_strings, $dictionary;
+        include 'include/modules.php'; //bug 15661
+        $db = \DBManagerFactory::getInstance();
+
+        $sql = '';
+        //repair DB
+        $dm = inDeveloperMode();
+        $GLOBALS['sugar_config']['developerMode'] = true;
+        foreach ($this->module_list as $bean_name) {
+
+            $bean_name = $beanList[$bean_name]; //PEA
+
+            if (isset($beanFiles[$bean_name]) && file_exists($beanFiles[$bean_name])) {
+                require_once $beanFiles[$bean_name];
+                $GLOBALS['reload_vardefs'] = true;
+                $focus = new $bean_name();
+                #30273
+                if ($focus->disable_vardefs == false) {
+                    include 'modules/' . $focus->module_dir . '/vardefs.php';
+
+                    if ($this->show_output) {
+                        print_r("<p>" . $mod_strings['LBL_REPAIR_DB_FOR'] . ' ' . $bean_name . "</p>");
                     }
-                    $qry_str .= "\n";
+
+                    $sql .= $db->repairTable($focus, $this->execute);
                 }
             }
-            $this->sql = $qry_str;
         }
+        // TODO: repairCustomFields
+        // TODO: repairTableParams for other than modules
+
+        $GLOBALS['sugar_config']['developerMode'] = $dm;
+
+        $this->sql = $this->removeComments($sql);
+    }
+
+    public function clearThemeCache()
+    {
+        require_once 'include/SugarTheme/SugarThemeRegistry.php';
+        \SugarThemeRegistry::buildRegistry();
+        parent::clearThemeCache();
     }
 }
