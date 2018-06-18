@@ -748,6 +748,7 @@ class Spm
                     'filename' => $path,
                     'id_name' => !empty($installdefs['id']) ? $installdefs['id'] : $manifest['name'],
                     'version' => $manifest['version'],
+                    'dependencies' => !empty($manifest['dependencies']) ? $manifest['dependencies'] : null,
                 );
                 return $packages;
             }
@@ -1328,6 +1329,8 @@ timestamp: ".date("Y-m-d H:i:s")."
             $packagesInDb[] = $row;
         }
 
+        $packagesInFile = $this->unmaskPackages($packagesInFile, $packagesInDb);
+
         foreach($packagesInDb as $row) {
             $inFile = false;
             foreach($packagesInFile as $pack) {
@@ -1397,6 +1400,55 @@ timestamp: ".date("Y-m-d H:i:s")."
 
         $statusData['incorrectEnvironments'] = array_diff($statusData['currentEnvironments'], $statusData['environments']);
         return $statusData;
+    }
+
+    protected function unmaskPackages($maskedPackages, $packagesInDb)
+    {
+        $unmaskedPackages = array();
+        foreach($maskedPackages as $section => $maskedPack) {
+            if (empty($maskedPack['path']) || strpos($maskedPack['path'], '*') === false) {
+                $unmaskedPackages[$section] = $maskedPack;
+            }
+            else {
+                $paths = glob($maskedPack['path']);
+                $sectionPackages = array();
+                foreach($paths as $path) {
+                    if(!is_dir($path)) {
+                        continue;
+                    }
+                    $packs = self::searchPackages(rtrim($path, '/'));
+                    foreach($packs as $key => $pack) {
+                        if(!fnmatch($maskedPack['id'], $pack['id_name'], FNM_CASEFOLD)
+                            || !fnmatch($maskedPack['version'], $pack['version'], FNM_CASEFOLD)) {
+                            continue;
+                        }
+                        $inFile = false;
+                        foreach($unmaskedPackages as $p) {
+                            if(strcasecmp($p['id'], $pack['id_name']) == 0 && strnatcmp($p['version'], $pack['version']) >= 0) {
+                                $inFile = true;
+                                break;
+                            }
+                        }
+                        if(!$inFile) {
+                            $sectionPackages[] = $pack;
+                        }
+                    }
+                }
+                $sorted = PackList::sortPackagesTopologically($sectionPackages, array_merge($packagesInDb, $unmaskedPackages));
+                $s = 0;
+                foreach($sectionPackages as $pack) {
+                    while (isset($unmaskedPackages["{$section}-{$s}"])) {
+                        $s++;
+                    }
+                    $newSectionName = "{$section}-{$s}";
+                    $unmaskedPackages[$newSectionName] = $maskedPack;
+                    $unmaskedPackages[$newSectionName]['path'] = $pack['filename'];
+                    $unmaskedPackages[$newSectionName]['id'] = $pack['id_name'];
+                    $unmaskedPackages[$newSectionName]['version'] = $pack['version'];
+                }
+            }
+        }
+        return $unmaskedPackages;
     }
 
     protected function getReinstalls($newPackages, $packagesInFile, $depth = 0)
