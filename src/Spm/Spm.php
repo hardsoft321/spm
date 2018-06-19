@@ -1600,6 +1600,12 @@ timestamp: ".date("Y-m-d H:i:s")."
             Cmd\Base::$GLOBAL_OPTIONS, Cmd\UninstallCmd::$ALLOWED_OPTIONS), $options);
 
         $id_version = $id_name.(!empty($version) ? '-'.$version : '');
+
+        $packages = $this->getAvailablePackages($options)->lookup($id_name, $version);
+        if(empty($packages)) {
+            throw new \Exception("Package $id_name $version not found (spm_path = {$this->spmPath}).");
+        }
+
         if (!empty($version)) {
             $cmd = '/usr/bin/env php '.SPM_ENTRY_POINT.' uninstall '.$id_version.' '.$uninstallOptionsString;
             exec($cmd, $output, $return_var);
