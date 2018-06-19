@@ -118,8 +118,10 @@ class RepairAndClear extends \RepairAndClear
 
     public function clearThemeCache()
     {
-        require_once 'include/SugarTheme/SugarThemeRegistry.php';
-        \SugarThemeRegistry::buildRegistry();
+        if(file_exists('include/SugarTheme/SugarThemeRegistry.php')) {
+            require_once 'include/SugarTheme/SugarThemeRegistry.php';
+            \SugarThemeRegistry::buildRegistry();
+        }
         parent::clearThemeCache();
     }
 }
