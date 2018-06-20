@@ -679,7 +679,11 @@ class Spm
 
     public function getAvailablePackages($options = null)
     {
-        $spmPath = !empty($options['spm-path']) ? $options['spm-path'] : getenv('SPM_PATH');
+        $spmPath = !empty($options['spm-path'])
+            ? $options['spm-path']
+            : (!empty($this->spmPath)
+                ? $this->spmPath
+                : getenv('SPM_PATH'));
         if(!$this->packagesAvailable || $this->spmPath != $spmPath) {
             $this->spmPath = $spmPath;
             $this->updateAvailable();
@@ -1521,16 +1525,14 @@ timestamp: ".date("Y-m-d H:i:s")."
             if(empty($pack['version'])) {
                 throw new \Exception('version must be specified in '.print_r($pack, true));
             }
-            if(empty($pack['path'])) {
-                throw new \Exception('path must be specified in '.print_r($pack, true));
-            }
             if($this->isUploaded($pack['id'], $pack['version'])) {
                 continue;
             }
-            $this->spmPath = $pack['path'];
-            $this->updateAvailable(); //Warning: available packages changed
+            if(empty($pack['path'])) {
+                throw new \Exception('path must be specified in '.print_r($pack, true));
+            }
             try {
-                $this->upload($pack['id'], $pack['version']);
+                $this->upload($pack['id'], $pack['version'], array('spm-path' => $pack['path']));
             }
             catch(FileAlreadyExistsException $ex) {
                 echo $ex->getMessage()."\n";

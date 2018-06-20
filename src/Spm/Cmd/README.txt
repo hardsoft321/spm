@@ -90,7 +90,7 @@ spm repair
         -v - show output
         --actions=<actions> - comma-separated list of actions to run. Default - clearAll.
             Available (modules/Administration/QuickRepairAndRebuild.php):
-                repairDatabase,rebuildExtensions,clearTpls,clearJsFiles,clearDashlets,clearSugarFeedCache,clearThemeCache,clearVardefs,clearJsLangFiles,rebuildAuditTables,clearSearchCache,clearAll
+                repairDatabase,rebuildExtensions,clearTpls,clearJsFiles,clearDashlets,clearSugarFeedCache,clearThemeCache,clearVardefs,clearJsLangFiles,rebuildAuditTables,clearSearchCache
         --modules=<modules> - comma-separated list of modules to repair. Default - all modules.
 
 spm dbquery [<sql>]
