@@ -5,6 +5,8 @@
  */
 namespace Spm\Cmd;
 
+use Spm\Spm;
+
 class RepairCmd extends Base
 {
     public static $ALLOWED_OPTIONS = array(
@@ -12,6 +14,16 @@ class RepairCmd extends Base
         'actions:',
         'modules:',
     );
+
+    public function executeNonSugar()
+    {
+        if(Spm::chdirToSugarRoot()) {
+            $moduleExtFile = getcwd() . '/custom/application/Ext/Include/modules.ext.php';
+            if (file_exists($moduleExtFile)) {
+                unlink($moduleExtFile);
+            }
+        }
+    }
 
     public function execute()
     {

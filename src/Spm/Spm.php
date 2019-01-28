@@ -1152,7 +1152,7 @@ timestamp: ".date("Y-m-d H:i:s")."
         return true;
     }
 
-    protected static function chdirToSugarRoot($path = null)
+    public static function chdirToSugarRoot($path = null)
     {
         if($path === null) {
             $path = getcwd();
