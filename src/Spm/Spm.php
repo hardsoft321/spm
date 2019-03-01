@@ -1114,6 +1114,17 @@ timestamp: ".date("Y-m-d H:i:s")."
         $GLOBALS['sugar_config'] = $sugar_config;
         require_once('include/entryPoint.php');
 
+        //rebuild modules.ext.php, otherwise relationships table will not be fully populated
+        //unlinking made in RepairCmd
+        if (!file_exists('custom/application/Ext/Include/modules.ext.php')) {
+            $mi = new Sugar\ModuleInstaller();
+            $mi->silent = true;
+            $mi->rebuild_modules();
+            if (file_exists('custom/application/Ext/Include/modules.ext.php')) {
+                include('custom/application/Ext/Include/modules.ext.php');
+            }
+        }
+
         // Scope is messed up due to requiring files within a function
         // We need to explicitly assign these variables to $GLOBALS
         foreach (get_defined_vars() as $key => $val) {
