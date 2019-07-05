@@ -8,7 +8,7 @@
 
 namespace Spm;
 
-define('SPM_VERSION', '2.2.0');
+define('SPM_VERSION', '2.3.0');
 
 class Spm
 {
